@@ -1,16 +1,17 @@
 {
   "name": "fleetanchor-backend",
   "version": "1.0.0",
-  "description": "FleetAnchor Pro — Maintenance Management Platform API",
+  "description": "FleetAnchor Pro API",
   "main": "src/server.js",
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
+    "build": "npx prisma generate",
+    "postinstall": "npx prisma generate",
+    "migrate": "npx prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
-    "prisma:seed": "node prisma/seed.js",
-    "test": "jest --coverage",
-    "lint": "eslint src/"
+    "prisma:seed": "node prisma/seed.js"
   },
   "dependencies": {
     "@prisma/client": "^5.10.0",
@@ -26,7 +27,6 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
-    "multer": "^1.4.5-lts.1",
     "nodemailer": "^6.9.11",
     "otplib": "^12.0.1",
     "puppeteer": "^22.3.0",
@@ -36,11 +36,8 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "eslint": "^8.57.0",
-    "jest": "^29.7.0",
     "nodemon": "^3.1.0",
-    "prisma": "^5.10.0",
-    "supertest": "^6.3.4"
+    "prisma": "^5.10.0"
   },
   "engines": {
     "node": ">=18.0.0"
