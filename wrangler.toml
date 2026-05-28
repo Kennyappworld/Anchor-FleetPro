@@ -1,0 +1,35 @@
+name = "fleetanchor-api-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+workers_dev = false
+
+# ─── Routes ───────────────────────────────────────────────────────────────────
+# Replace with your actual domain after adding it to Cloudflare
+[[routes]]
+pattern = "api.yourdomain.com/*"
+zone_name = "yourdomain.com"
+
+# ─── KV Namespace for rate limiting ───────────────────────────────────────────
+# Create with: wrangler kv:namespace create RATE_LIMIT_KV
+# Then paste the id below
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_NAMESPACE_ID"
+
+# ─── Environment variables ────────────────────────────────────────────────────
+[vars]
+# Non-sensitive config only — secrets go in wrangler secret put
+BACKEND_URL = "https://fleetanchor-api.up.railway.app"
+
+# ─── Secrets (set via CLI, not in this file) ──────────────────────────────────
+# wrangler secret put WORKER_SECRET
+
+# ─── Production environment ───────────────────────────────────────────────────
+[env.production]
+name = "fleetanchor-api-proxy-prod"
+workers_dev = false
+
+[[env.production.routes]]
+pattern = "api.yourdomain.com/*"
+zone_name = "yourdomain.com"

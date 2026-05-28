@@ -1,0 +1,19 @@
+[phases.setup]
+nixPkgs = ["nodejs_20", "openssl", "chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "ttf-opensans"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = [
+  "npx prisma generate",
+  "echo 'Build complete — migrations run at deploy time'"
+]
+
+[start]
+cmd = "npx prisma migrate deploy && node src/server.js"
+
+[variables]
+PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
+PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
+NODE_ENV = "production"

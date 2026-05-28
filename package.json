@@ -1,0 +1,23 @@
+{
+  "name": "fleetanchor-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "FleetAnchor Pro — Fleet Maintenance Management Platform",
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "build": "npm run build --workspace=frontend",
+    "install:all": "npm install && npm install --workspace=backend && npm install --workspace=frontend",
+    "migrate": "npm run prisma:migrate --workspace=backend",
+    "seed": "npm run prisma:seed --workspace=backend",
+    "lint": "npm run lint --workspace=backend && npm run lint --workspace=frontend",
+    "test": "npm run test --workspace=backend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

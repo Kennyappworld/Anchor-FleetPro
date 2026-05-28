@@ -1,0 +1,64 @@
+# ─── Node ─────────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ─── Environment — NEVER commit secrets ───────────────────────────────────────
+.env
+.env.local
+.env.production
+.env.*.local
+backend/.env
+frontend/.env
+
+# Keep example files
+!.env.example
+!backend/.env.example
+!frontend/.env.example
+
+# ─── Build outputs ────────────────────────────────────────────────────────────
+frontend/dist/
+frontend/build/
+backend/dist/
+
+# ─── Prisma ───────────────────────────────────────────────────────────────────
+backend/prisma/migrations/dev.db
+backend/prisma/migrations/dev.db-journal
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+backend/logs/
+
+# ─── OS / Editor ──────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+deploy/ssl/
+*.pem
+*.key
+*.crt
+
+# ─── Testing ──────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ─── Puppeteer ────────────────────────────────────────────────────────────────
+.cache/
+backend/.cache/
+
+# ─── Misc ─────────────────────────────────────────────────────────────────────
+*.tar.gz
+*.zip
+tmp/
+temp/
