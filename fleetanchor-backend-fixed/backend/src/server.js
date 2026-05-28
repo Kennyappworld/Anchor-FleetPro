@@ -1,10 +1,7 @@
 require("dotenv").config();
 const express = require("express");
-const helmet = require("helmet");
 const cors = require("cors");
 const compression = require("compression");
-const morgan = require("morgan");
-const rateLimit = require("express-rate-limit");
 const { execSync } = require("child_process");
 
 const logger = require("./config/logger");
@@ -26,43 +23,42 @@ const adminRoutes = require("./routes/admin");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Run DB sync on startup
+// Sync DB on startup
 try {
-  console.log("Syncing database schema...");
-  execSync("npx prisma db push --accept-data-loss", { stdio: "inherit" });
-  console.log("Database schema synced!");
+  console.log("Running prisma db push...");
+  execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", timeout: 60000 });
+  console.log("Database ready!");
 } catch (err) {
-  console.error("DB push failed (non-fatal):", err.message);
+  console.error("DB push error (continuing):", err.message);
 }
 
-app.use(helmet({ contentSecurityPolicy: false }));
-
+// CORS - allow all origins
 app.use(cors({
-  origin: (origin, cb) => cb(null, true),
-  credentials: true,
+  origin: "*",
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization","X-Device-Fingerprint"],
+  credentials: false,
 }));
 
+app.options("*", cors());
+
+// Paystack webhook needs raw body
 app.use("/api/webhooks/paystack", express.raw({ type: "application/json" }));
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(compression());
 
-if (process.env.NODE_ENV !== "test") {
-  app.use(morgan("combined", { stream: { write: (m) => logger.http(m.trim()) } }));
-}
-
-app.use("/api/", rateLimit({
-  windowMs: 900000, max: 100,
-  standardHeaders: true, legacyHeaders: false,
-  message: { success: false, error: "Too many requests." },
-}));
-
+// Health check
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "ok", service: "FleetAnchor Pro API", timestamp: new Date().toISOString() });
 });
 
+app.get("/", (req, res) => {
+  res.json({ service: "FleetAnchor Pro API", status: "running" });
+});
+
+// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vendors", vendorRoutes);
@@ -85,7 +81,7 @@ app.listen(PORT, "0.0.0.0", () => {
     const { startCronJobs } = require("./services/cronService");
     startCronJobs();
   } catch(e) {
-    console.warn("Cron jobs skipped:", e.message);
+    console.warn("Cron skipped:", e.message);
   }
 });
 
