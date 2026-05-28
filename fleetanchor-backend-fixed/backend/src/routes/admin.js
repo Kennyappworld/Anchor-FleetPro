@@ -72,4 +72,21 @@ router.post('/tenants/:id/deactivate', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/admin/backup/run — Super Admin manually triggers Google Drive backup
+router.post('/backup/run', requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { triggerManualBackup } = require('../services/googleDriveBackup');
+  return triggerManualBackup(req, res);
+});
+
+// GET /api/admin/backup/status — check if backup is configured
+router.get('/backup/status', requireRole(['SUPER_ADMIN']), (req, res) => {
+  res.json({
+    success: true,
+    configured: !!(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY),
+    hasFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
+    schedule: 'Every Sunday at 2:00 AM WAT',
+    notifyEmail: process.env.BACKUP_NOTIFY_EMAIL || process.env.SENDGRID_FROM_EMAIL || null,
+  });
+});
+
 module.exports = router;

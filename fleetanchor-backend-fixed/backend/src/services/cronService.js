@@ -28,21 +28,35 @@ function startCronJobs() {
   }
 
   try {
-    // Weekly backup - Sunday 2:00 AM WAT
-    if (process.env.AWS_S3_BUCKET && process.env.AWS_ACCESS_KEY_ID) {
+    // Weekly Google Drive backup - Sunday 2:00 AM WAT
+    if (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY) {
       const backup = new cron("0 2 * * 0", async () => {
         try {
-          logger.info("Running weekly backup...");
-          const { runBackup } = require("./backupService");
-          await runBackup();
+          logger.info("Running weekly Google Drive backup...");
+          const { runGoogleDriveBackup } = require("./googleDriveBackup");
+          const result = await runGoogleDriveBackup();
+          logger.info(`[BACKUP] Complete — ${result.fileName} (${result.sizeKB} KB) in ${result.elapsed}s`);
         } catch (err) {
-          logger.error("Backup failed:", err.message);
+          logger.error("Google Drive backup failed:", err.message);
         }
       }, null, true, "Africa/Lagos");
       jobs.push(backup);
-      logger.info("Backup cron job scheduled");
+      logger.info("Google Drive backup cron scheduled (Sundays 2 AM WAT)");
+    } else if (process.env.AWS_S3_BUCKET && process.env.AWS_ACCESS_KEY_ID) {
+      // Fallback: AWS S3 if configured
+      const backup = new cron("0 2 * * 0", async () => {
+        try {
+          logger.info("Running weekly AWS S3 backup...");
+          const { runBackup } = require("./backupService");
+          await runBackup();
+        } catch (err) {
+          logger.error("AWS backup failed:", err.message);
+        }
+      }, null, true, "Africa/Lagos");
+      jobs.push(backup);
+      logger.info("AWS S3 backup cron scheduled (Sundays 2 AM WAT)");
     } else {
-      logger.warn("AWS credentials not configured - backup cron skipped");
+      logger.warn("No backup credentials configured — weekly backup skipped. Add GOOGLE_SERVICE_ACCOUNT_EMAIL + GOOGLE_PRIVATE_KEY to enable.");
     }
   } catch (err) {
     logger.warn("Failed to start backup cron:", err.message);

@@ -135,3 +135,8 @@ export const userService = {
   suspend: (id) => api.post(`/users/${id}/suspend`),
   resendCredentials: (id) => api.post(`/users/${id}/resend-credentials`),
 };
+
+export const adminService = {
+  backupStatus: () => api.get("/admin/backup/status"),
+  runBackup: () => api.post("/admin/backup/run"),
+};
