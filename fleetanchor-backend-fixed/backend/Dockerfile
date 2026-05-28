@@ -1,24 +1,23 @@
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
-# Copy package files
+# Install openssl for Prisma
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+# Copy package.json only
 COPY package.json ./
 
-# Install dependencies - npm install not npm ci
-RUN npm install --production=false
+# Install with flags to avoid failures
+RUN npm install --legacy-peer-deps --no-optional
 
-# Copy prisma schema
+# Copy prisma and generate client
 COPY prisma ./prisma/
-
-# Generate Prisma client
 RUN npx prisma generate
 
-# Copy source code
+# Copy all source files
 COPY . .
 
-# Expose port
 EXPOSE 5000
 
-# Start command
 CMD ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
