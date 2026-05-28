@@ -1,14 +1,17 @@
 const nodemailer = require('nodemailer');
 const logger = require('../config/logger');
 
-const transporter = nodemailer.createTransport({
+// Supports SendGrid (SENDGRID_API_KEY) or generic SMTP
+const transporter = process.env.SENDGRID_API_KEY
+  ? nodemailer.createTransport({ host: 'smtp.sendgrid.net', port: 587, secure: false, auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY } })
+  : nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: parseInt(process.env.SMTP_PORT) || 587,
   secure: false,
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
 });
 
-const FROM = `"${process.env.EMAIL_FROM_NAME || 'FleetAnchor Pro'}" <${process.env.EMAIL_FROM}>`;
+const FROM = `"${process.env.EMAIL_FROM_NAME || 'FleetAnchor Pro'}" <${process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL}>`;
 
 const baseTemplate = (content) => `
 <!DOCTYPE html>
