@@ -2,7 +2,7 @@
 nixPkgs = ["nodejs_20", "openssl"]
 
 [phases.install]
-cmds = ["npm install --production=false"]
+cmds = ["npm install --legacy-peer-deps"]
 
 [phases.build]
 cmds = ["npx prisma generate"]
@@ -13,3 +13,4 @@ cmd = "npx prisma migrate deploy && node src/server.js"
 [variables]
 PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
 NODE_ENV = "production"
+NPM_CONFIG_LEGACY_PEER_DEPS = "true"
