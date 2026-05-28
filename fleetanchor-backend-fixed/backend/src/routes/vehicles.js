@@ -31,10 +31,18 @@ router.patch("/:id",
 );
 
 router.delete("/:id",
-  requireRole(["SUPER_ADMIN","OEM_ADMIN"]),
+  requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER"]),
   param("id").isUUID(),
   validate,
   vc.remove
+);
+
+// Bulk import via JSON (parsed from Excel on frontend)
+router.post("/bulk-import",
+  requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER"]),
+  body("vehicles").isArray({ min: 1, max: 500 }),
+  validate,
+  vc.bulkImport
 );
 
 module.exports = router;

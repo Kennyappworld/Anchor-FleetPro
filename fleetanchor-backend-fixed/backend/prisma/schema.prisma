@@ -57,6 +57,12 @@ model Vendor {
   suspendedAt   DateTime?
   suspendedBy   String?
   suspendReason String?
+  inviteToken   String?       @unique
+  inviteExpiry  DateTime?
+  inviteAccepted Boolean      @default(false)
+  trialEndsAt   DateTime?
+  trialPlan     PlanTier?
+  demoMode      Boolean       @default(false)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   users         User[]

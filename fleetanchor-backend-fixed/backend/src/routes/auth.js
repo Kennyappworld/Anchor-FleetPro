@@ -81,4 +81,14 @@ router.post('/2fa/disable', authenticate, authController.disable2FA);
 // ─── Register (admin creates user / vendor registers field agent) ─────────────
 router.post('/register', authenticate, registerRules, validate, authController.register);
 
+// ─── Vendor Invite / Setup ────────────────────────────────────────────────────
+router.get('/vendor-invite/:token', authController.checkVendorInvite);
+router.post('/vendor-setup',
+  body('token').notEmpty(),
+  body('fullName').trim().isLength({ min: 2 }),
+  body('password').isLength({ min: 12 }).matches(/[A-Z]/).matches(/[0-9]/).matches(/[^A-Za-z0-9]/),
+  validate,
+  authController.acceptVendorInvite
+);
+
 module.exports = router;

@@ -133,3 +133,45 @@ exports.remove = async (req, res, next) => {
     res.json({ success: true, message: 'Vehicle removed' });
   } catch (err) { next(err); }
 };
+
+exports.bulkImport = async (req, res, next) => {
+  try {
+    const { vehicles } = req.body;
+    const { role, vendorId } = req.user;
+    const vid = role === 'FLEET_MANAGER' ? vendorId : req.body.vendorId;
+    if (!vid) return res.status(400).json({ success: false, error: 'vendorId required for bulk import' });
+
+    const results = { created: 0, skipped: 0, errors: [] };
+    for (const v of vehicles) {
+      try {
+        const vin = (v.vin || v.VIN || '').toString().trim().toUpperCase();
+        const plate = (v.plateNumber || v.plate || v['Plate Number'] || '').toString().trim().toUpperCase();
+        if (!vin || !plate) { results.skipped++; continue; }
+        await prisma.vehicle.upsert({
+          where: { vin },
+          create: {
+            vin, plateNumber: plate,
+            make: (v.make || v.Make || 'Unknown').toString().trim(),
+            model: (v.model || v.Model || 'Unknown').toString().trim(),
+            year: parseInt(v.year || v.Year) || new Date().getFullYear(),
+            engineNumber: (v.engineNumber || v.engine || v['Engine Number'] || '').toString().trim() || null,
+            category: (v.category || v.Category || '').toString().trim() || null,
+            vendorId: vid,
+          },
+          update: {
+            plateNumber: plate,
+            make: (v.make || v.Make || 'Unknown').toString().trim(),
+            model: (v.model || v.Model || 'Unknown').toString().trim(),
+            year: parseInt(v.year || v.Year) || new Date().getFullYear(),
+          },
+        });
+        results.created++;
+      } catch (e) {
+        results.errors.push({ row: v, error: e.message });
+        results.skipped++;
+      }
+    }
+    await logAction(req, 'VEHICLES_BULK_IMPORTED', 'Vehicle', vid, { count: results.created });
+    res.json({ success: true, ...results });
+  } catch (err) { next(err); }
+};

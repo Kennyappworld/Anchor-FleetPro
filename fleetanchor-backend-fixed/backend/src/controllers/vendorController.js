@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const { logAction } = require('../services/auditService');
 const { sendEmail } = require('../services/emailService');
+const crypto = require('crypto');
 const prisma = new PrismaClient();
 
 function tenantFilter(req) {
@@ -65,12 +66,51 @@ exports.stats = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { companyName, email, contactPhone, oemId } = req.body;
+    const { companyName, contactEmail, contactPhone, oemId, address, contactPerson, plan } = req.body;
+    const email = contactEmail || req.body.email;
+
+    // Generate 1-month trial + invite token
+    const inviteToken = crypto.randomBytes(32).toString('hex');
+    const inviteExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days to accept
+    const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30-day trial
+
     const vendor = await prisma.vendor.create({
-      data: { companyName, email, contactPhone, oemId, status: 'ACTIVE' },
+      data: {
+        companyName, contactEmail: email, contactPhone,
+        oemId, address: address || null,
+        status: 'ACTIVE',
+        inviteToken, inviteExpiry,
+        trialEndsAt, trialPlan: plan || 'GROWTH',
+        inviteAccepted: false,
+      },
+      include: { oem: { select: { name: true } } },
     });
+
+    // Send invite email (non-blocking)
+    const frontendUrl = process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app';
+    const signupUrl = `${frontendUrl}/vendor/setup?token=${inviteToken}&vid=${vendor.id}`;
+
+    sendEmail({
+      to: email,
+      subject: `You're invited to FleetAnchor Pro — ${companyName}`,
+      html: `
+        <h2 style="color:#0A1628">Welcome to FleetAnchor Pro!</h2>
+        <p>You have been registered as a vendor on the <strong>${vendor.oem?.name || 'FleetAnchor'}</strong> maintenance platform.</p>
+        <p><strong>Company:</strong> ${companyName}</p>
+        <p><strong>Plan:</strong> ${plan || 'GROWTH'} — <em>30-day free trial included</em></p>
+        <p>Click the button below to set up your account and create your password:</p>
+        <p style="margin:24px 0">
+          <a href="${signupUrl}" style="background:#F5A623;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;display:inline-block">
+            Activate My Account
+          </a>
+        </p>
+        <p style="font-size:12px;color:#888">This link expires in 7 days. If you did not expect this email, you can safely ignore it.</p>
+        <p style="font-size:12px;color:#888">Or copy this link: ${signupUrl}</p>
+      `,
+    }).catch(() => {}); // Don't fail if email fails
+
     await logAction(req, 'VENDOR_CREATED', 'Vendor', vendor.id);
-    res.status(201).json({ success: true, data: vendor });
+    res.status(201).json({ success: true, data: vendor, signupUrl });
   } catch (err) { next(err); }
 };
 

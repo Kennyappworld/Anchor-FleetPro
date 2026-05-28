@@ -55,6 +55,8 @@ export const authService = {
   forgotPassword: (email, accountType) => api.post("/auth/forgot-password", { email, accountType }),
   verifyOtp: (email, otp) => api.post("/auth/verify-otp", { email, otp }),
   resetPassword: (token, password) => api.post("/auth/reset-password", { token, password }),
+  checkVendorInvite: (token) => api.get(`/auth/vendor-invite/${token}`),
+  acceptVendorInvite: (data) => api.post("/auth/vendor-setup", data),
 };
 
 export const jobService = {
@@ -71,6 +73,8 @@ export const vehicleService = {
   history: (id, hideCost) => api.get(`/vehicles/${id}/history`, { params: { hideCost } }),
   create: (data) => api.post("/vehicles", data),
   update: (id, data) => api.patch(`/vehicles/${id}`, data),
+  remove: (id) => api.delete(`/vehicles/${id}`),
+  bulkImport: (vehicles, vendorId) => api.post("/vehicles/bulk-import", { vehicles, vendorId }),
 };
 
 export const vendorService = {

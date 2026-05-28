@@ -352,3 +352,72 @@ exports.register = async (req, res) => {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 };
+
+// ─── Vendor Invite Check ──────────────────────────────────────────────────────
+exports.checkVendorInvite = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const vendor = await prisma.vendor.findUnique({
+      where: { inviteToken: token },
+      include: { oem: { select: { name: true } } },
+    });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Invite link not found or already used.' });
+    if (vendor.inviteAccepted) return res.status(410).json({ success: false, error: 'This invite has already been accepted. Please log in.' });
+    if (vendor.inviteExpiry && new Date() > vendor.inviteExpiry) {
+      return res.status(410).json({ success: false, error: 'This invite link has expired. Ask your OEM to resend.' });
+    }
+    res.json({ success: true, data: {
+      companyName: vendor.companyName,
+      email: vendor.contactEmail,
+      oemName: vendor.oem?.name,
+      trialEndsAt: vendor.trialEndsAt,
+      plan: vendor.trialPlan,
+    }});
+  } catch (err) {
+    logger.error('checkVendorInvite error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
+
+// ─── Accept Vendor Invite (creates Fleet Manager account) ────────────────────
+exports.acceptVendorInvite = async (req, res) => {
+  try {
+    const { token, fullName, password } = req.body;
+    const vendor = await prisma.vendor.findUnique({ where: { inviteToken: token } });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Invalid invite token.' });
+    if (vendor.inviteAccepted) return res.status(410).json({ success: false, error: 'Invite already accepted.' });
+    if (vendor.inviteExpiry && new Date() > vendor.inviteExpiry) {
+      return res.status(410).json({ success: false, error: 'Invite link expired.' });
+    }
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({ where: { email: vendor.contactEmail } });
+    if (existingUser) return res.status(409).json({ success: false, error: 'An account with this email already exists. Please log in.' });
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    // Create Fleet Manager user + mark invite accepted (transaction)
+    await prisma.$transaction([
+      prisma.user.create({
+        data: {
+          fullName,
+          email: vendor.contactEmail,
+          passwordHash,
+          role: 'FLEET_MANAGER',
+          vendorId: vendor.id,
+          oemId: vendor.oemId,
+          active: true,
+        },
+      }),
+      prisma.vendor.update({
+        where: { id: vendor.id },
+        data: { inviteAccepted: true, inviteToken: null },
+      }),
+    ]);
+
+    res.json({ success: true, message: 'Account created! You can now log in.' });
+  } catch (err) {
+    logger.error('acceptVendorInvite error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
