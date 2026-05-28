@@ -212,3 +212,26 @@ exports.reinstate = async (req, res, next) => {
     res.json({ success: true, message: 'Vendor reinstated' });
   } catch (err) { next(err); }
 };
+
+exports.remove = async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: req.params.id },
+      include: { _count: { select: { users: true, vehicles: true, subscriptions: true } } },
+    });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+
+    // Delete in order: subscriptions, users, vehicles, then vendor
+    await prisma.subscription.deleteMany({ where: { vendorId: vendor.id } });
+    await prisma.user.deleteMany({ where: { vendorId: vendor.id } });
+    // Detach vehicles (preserve job history) rather than hard delete
+    await prisma.vehicle.updateMany({ where: { vendorId: vendor.id }, data: { status: 'DECOMMISSIONED' } });
+    await prisma.vendor.delete({ where: { id: vendor.id } });
+
+    await logAction(req, 'VENDOR_DELETED', 'Vendor', vendor.id, {
+      companyName: vendor.companyName,
+      usersRemoved: vendor._count.users,
+    });
+    res.json({ success: true, message: `Vendor "${vendor.companyName}" deleted permanently.` });
+  } catch (err) { next(err); }
+};

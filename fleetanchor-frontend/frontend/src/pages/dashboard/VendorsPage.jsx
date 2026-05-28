@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
-import { Search, Plus, Ban, CheckCircle, Building2, X, ChevronDown, Mail, Phone, MapPin, User } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Plus, Ban, CheckCircle, Building2, X, ChevronDown, Mail, Phone, MapPin, User, Trash2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { vendorService } from '../../services/api';
+import { useAuthStore } from '../../context/authStore';
 
 const MOCK = [
   { id:'1', name:'Coca-Cola Nigeria', email:'fleet@coca-cola.ng', phone:'+234 801 234 5678', plan:'ENTERPRISE', vehicles:187, users:8, status:'ACTIVE', joined:'Jan 2025', spend:'₦28.4M' },
@@ -46,50 +48,86 @@ function Field({ label, icon: Icon, value, onChange, placeholder, type='text' })
 }
 
 export default function VendorsPage() {
-  const [vendors, setVendors] = useState(MOCK);
+  const { user } = useAuthStore();
+  const [vendors, setVendors] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [suspendModal, setSuspendModal] = useState(null);
+  const [deleteModal, setDeleteModal] = useState(null);
   const [reason, setReason] = useState('');
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => { fetchVendors(); }, []);
+
+  const fetchVendors = async () => {
+    setLoading(true);
+    try {
+      const res = await vendorService.list();
+      setVendors(res.data.data || []);
+    } catch { toast.error('Failed to load vendors'); }
+    finally { setLoading(false); }
+  };
 
   const filtered = vendors.filter(v =>
-    !search || v.name.toLowerCase().includes(search.toLowerCase()) || v.email.toLowerCase().includes(search.toLowerCase())
+    !search ||
+    (v.companyName || v.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (v.contactEmail || v.email || '').toLowerCase().includes(search.toLowerCase())
   );
 
-  const doSuspend = (id) => {
-    setVendors(prev => prev.map(v => v.id===id ? {...v, status:'SUSPENDED'} : v));
-    setSuspendModal(null); setReason('');
-    toast.success('Vendor suspended. Notification sent.');
+  const doSuspend = async (id) => {
+    try {
+      await vendorService.suspend(id, reason);
+      setVendors(prev => prev.map(v => v.id === id ? { ...v, status: 'SUSPENDED' } : v));
+      setSuspendModal(null); setReason('');
+      toast.success('Vendor suspended. Notification sent.');
+    } catch { toast.error('Failed to suspend vendor'); }
   };
-  const doReinstate = (id) => {
-    setVendors(prev => prev.map(v => v.id===id ? {...v, status:'ACTIVE'} : v));
-    toast.success('Vendor reinstated.');
+
+  const doReinstate = async (id) => {
+    try {
+      await vendorService.reinstate(id);
+      setVendors(prev => prev.map(v => v.id === id ? { ...v, status: 'ACTIVE' } : v));
+      toast.success('Vendor reinstated.');
+    } catch { toast.error('Failed to reinstate vendor'); }
+  };
+
+  const doDelete = async () => {
+    if (!deleteModal) return;
+    setDeleting(true);
+    try {
+      await vendorService.remove(deleteModal.id);
+      setVendors(prev => prev.filter(v => v.id !== deleteModal.id));
+      setDeleteModal(null);
+      toast.success(`"${deleteModal.companyName || deleteModal.name}" deleted permanently.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to delete vendor');
+    } finally { setDeleting(false); }
   };
 
   const handleAddVendor = async () => {
     if (!form.name.trim()) { toast.error('Company name is required'); return; }
     if (!form.email.trim()) { toast.error('Email is required'); return; }
     setSaving(true);
-    await new Promise(r => setTimeout(r, 800));
-    const newVendor = {
-      id: String(Date.now()),
-      name: form.name,
-      email: form.email,
-      phone: form.phone,
-      plan: form.plan,
-      vehicles: 0,
-      users: 0,
-      status: 'ACTIVE',
-      joined: new Date().toLocaleDateString('en-GB', { month:'short', year:'numeric' }),
-      spend: '₦0',
-    };
-    setVendors(prev => [newVendor, ...prev]);
-    setShowAdd(false);
-    setForm(EMPTY_FORM);
-    setSaving(false);
-    toast.success(`${form.name} added successfully! Welcome email sent.`);
+    try {
+      const res = await vendorService.create({
+        companyName: form.name,
+        contactEmail: form.email,
+        contactPhone: form.phone,
+        contactPerson: form.contactName,
+        address: form.address,
+        plan: form.plan,
+        oemId: user?.oemId,
+      });
+      setVendors(prev => [res.data.data, ...prev]);
+      setShowAdd(false);
+      setForm(EMPTY_FORM);
+      toast.success(`${form.name} added! Login details sent to ${form.email}.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to add vendor');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -98,7 +136,7 @@ export default function VendorsPage() {
         <div>
           <h1 className="text-sm font-semibold text-[var(--text)]">Vendors & Fleet Companies</h1>
           <p className="text-[10px] text-[var(--text3)]">
-            {vendors.filter(v => v.status==='ACTIVE').length} active · {vendors.filter(v => v.status==='SUSPENDED').length} suspended
+            {loading ? 'Loading…' : `${vendors.filter(v => v.status==='ACTIVE').length} active · ${vendors.filter(v => v.status==='SUSPENDED').length} suspended`}
           </p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary">
@@ -116,40 +154,110 @@ export default function VendorsPage() {
         <div className="table-wrap">
           <table className="tbl">
             <thead>
-              <tr><th>Company</th><th>Plan</th><th>Vehicles</th><th>Users</th><th>YTD Spend</th><th>Status</th><th>Joined</th><th>Actions</th></tr>
+              <tr><th>Company</th><th>Plan</th><th>Vehicles</th><th>Users</th><th>Status</th><th>Joined</th><th>Actions</th></tr>
             </thead>
             <tbody>
-              {filtered.map(v => (
-                <tr key={v.id}>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md bg-white/[0.08] flex items-center justify-center flex-shrink-0">
-                        <Building2 className="w-3.5 h-3.5 text-[var(--text3)]"/>
+              {loading ? (
+                <tr><td colSpan={7} className="text-center text-[var(--text3)] text-xs py-8">Loading vendors…</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={7} className="text-center text-[var(--text3)] text-xs py-8">No vendors found</td></tr>
+              ) : filtered.map(v => {
+                const name = v.companyName || v.name;
+                const email = v.contactEmail || v.email;
+                const plan = v.trialPlan || v.plan || 'GROWTH';
+                return (
+                  <tr key={v.id}>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-md bg-white/[0.08] flex items-center justify-center flex-shrink-0">
+                          <Building2 className="w-3.5 h-3.5 text-[var(--text3)]"/>
+                        </div>
+                        <div>
+                          <div className="text-[11px] font-semibold text-[var(--text)]">{name}</div>
+                          <div className="text-[10px] text-[var(--text3)]">{email}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="text-[11px] font-semibold text-[var(--text)]">{v.name}</div>
-                        <div className="text-[10px] text-[var(--text3)]">{v.email}</div>
+                    </td>
+                    <td><span className={`pill ${PLAN_COLORS[plan] || 'bg-white/10 text-[var(--text3)]'}`}>{plan.replace(/_/g,' ')}</span></td>
+                    <td>{v._count?.vehicles ?? '—'}</td>
+                    <td>{v._count?.users ?? '—'}</td>
+                    <td><span className={`pill ${v.status==='ACTIVE' ? 'pill-active' : 'pill-suspended'}`}>{v.status}</span></td>
+                    <td className="text-[10px] text-[var(--text3)]">{v.createdAt ? new Date(v.createdAt).toLocaleDateString('en-GB', { month:'short', year:'numeric' }) : '—'}</td>
+                    <td>
+                      <div className="flex items-center gap-1.5">
+                        {v.status === 'ACTIVE'
+                          ? <button onClick={() => setSuspendModal(v)} className="btn-danger text-[10px] py-1"><Ban className="w-3 h-3"/> Suspend</button>
+                          : <button onClick={() => doReinstate(v.id)} className="btn-success text-[10px] py-1"><CheckCircle className="w-3 h-3"/> Reinstate</button>
+                        }
+                        <button
+                          onClick={() => setDeleteModal(v)}
+                          className="text-[10px] py-1 px-2 rounded-lg border border-anchor-red/30 text-anchor-red hover:bg-anchor-red/10 transition-colors flex items-center gap-1"
+                          title="Delete vendor permanently"
+                        >
+                          <Trash2 className="w-3 h-3"/>
+                        </button>
                       </div>
-                    </div>
-                  </td>
-                  <td><span className={`pill ${PLAN_COLORS[v.plan]}`}>{v.plan.replace(/_/g,' ')}</span></td>
-                  <td>{v.vehicles}</td>
-                  <td>{v.users}</td>
-                  <td className="text-gold font-medium">{v.spend}</td>
-                  <td><span className={`pill ${v.status==='ACTIVE' ? 'pill-active' : 'pill-suspended'}`}>{v.status}</span></td>
-                  <td className="text-[10px] text-[var(--text3)]">{v.joined}</td>
-                  <td>
-                    {v.status === 'ACTIVE'
-                      ? <button onClick={() => setSuspendModal(v)} className="btn-danger text-[10px] py-1"><Ban className="w-3 h-3"/> Suspend</button>
-                      : <button onClick={() => doReinstate(v.id)} className="btn-success text-[10px] py-1"><CheckCircle className="w-3 h-3"/> Reinstate</button>
-                    }
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {deleteModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="card w-full max-w-sm p-5">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-9 h-9 rounded-full bg-anchor-red/20 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-anchor-red" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-anchor-red">Delete Vendor</h3>
+                <p className="text-[10px] text-[var(--text3)]">This action cannot be undone</p>
+              </div>
+            </div>
+            <p className="text-xs text-[var(--text)] mb-1">
+              You are about to permanently delete <strong>{deleteModal.companyName || deleteModal.name}</strong>.
+            </p>
+            <p className="text-[11px] text-[var(--text3)] mb-4">
+              This will remove all their user accounts and subscription records. Vehicle history will be preserved but vehicles will be marked as decommissioned.
+            </p>
+            <div className="bg-anchor-red/10 border border-anchor-red/20 rounded-lg px-3 py-2 mb-4">
+              <p className="text-[11px] text-anchor-red">
+                ⚠ Type the vendor name to confirm you understand this is permanent.
+              </p>
+              <input
+                placeholder={deleteModal.companyName || deleteModal.name}
+                className="form-input mt-2 text-xs"
+                id="delete-confirm-input"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setDeleteModal(null)} disabled={deleting} className="flex-1 btn-ghost justify-center py-2">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const val = document.getElementById('delete-confirm-input')?.value;
+                  if (val !== (deleteModal.companyName || deleteModal.name)) {
+                    toast.error('Name does not match — type exactly as shown');
+                    return;
+                  }
+                  doDelete();
+                }}
+                disabled={deleting}
+                className="flex-1 justify-center py-2 rounded-lg bg-anchor-red text-white text-xs font-semibold flex items-center gap-1.5 hover:bg-anchor-red/80 disabled:opacity-50 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deleting ? 'Deleting…' : 'Delete Permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Suspend modal */}
       {suspendModal && (

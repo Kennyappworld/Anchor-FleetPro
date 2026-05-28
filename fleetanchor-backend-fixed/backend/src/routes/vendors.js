@@ -42,4 +42,11 @@ router.post('/:id/reinstate',
   vc.reinstate
 );
 
+router.delete('/:id',
+  requireRole(['SUPER_ADMIN','OEM_ADMIN']),
+  param('id').isUUID(),
+  validate,
+  vc.remove
+);
+
 module.exports = router;

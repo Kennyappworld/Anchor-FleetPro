@@ -86,6 +86,7 @@ export const vendorService = {
   update: (id, data) => api.patch(`/vendors/${id}`, data),
   suspend: (id, reason) => api.post(`/vendors/${id}/suspend`, { reason }),
   reinstate: (id) => api.post(`/vendors/${id}/reinstate`),
+  remove: (id) => api.delete(`/vendors/${id}`),
 };
 
 export const estimateService = {
