@@ -3,12 +3,10 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from './context/authStore';
 
-// ─── Lazy-loaded pages ────────────────────────────────────────────────────────
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'));
 
-// Workshop / Admin
 const AdminLayout = lazy(() => import('./components/shared/AdminLayout'));
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
 const JobsPage = lazy(() => import('./pages/dashboard/JobsPage'));
@@ -23,7 +21,6 @@ const AuditPage = lazy(() => import('./pages/dashboard/AuditPage'));
 const SettingsPage = lazy(() => import('./pages/dashboard/SettingsPage'));
 const RepairsPage = lazy(() => import('./pages/dashboard/RepairsPage'));
 
-// Vendor portal
 const VendorLayout = lazy(() => import('./components/shared/VendorLayout'));
 const VendorDashboardPage = lazy(() => import('./pages/vendor/VendorDashboardPage'));
 const VendorJobsPage = lazy(() => import('./pages/vendor/VendorJobsPage'));
@@ -33,8 +30,8 @@ const VendorHistoryPage = lazy(() => import('./pages/vendor/VendorHistoryPage'))
 const VendorInvoicesPage = lazy(() => import('./pages/vendor/VendorInvoicesPage'));
 const VendorTeamPage = lazy(() => import('./pages/vendor/VendorTeamPage'));
 const VendorSubscriptionPage = lazy(() => import('./pages/vendor/VendorSubscriptionPage'));
+const TeamChatPage = lazy(() => import('./pages/vendor/TeamChatPage'));
 
-// ─── Route guards ─────────────────────────────────────────────────────────────
 const RequireAuth = ({ children }) => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   return isAuthenticated ? children : <Navigate to="/login" replace />;
@@ -43,24 +40,21 @@ const RequireAuth = ({ children }) => {
 const RequireWorkshop = ({ children }) => {
   const { user, isAuthenticated } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  const workshopRoles = ['SUPER_ADMIN', 'OEM_ADMIN', 'WORKSHOP_STAFF'];
-  if (!workshopRoles.includes(user?.role)) return <Navigate to="/vendor" replace />;
+  if (!['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STAFF'].includes(user?.role)) return <Navigate to="/vendor" replace />;
   return children;
 };
 
 const RequireVendor = ({ children }) => {
   const { user, isAuthenticated } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  const vendorRoles = ['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR', 'FIELD_AGENT'];
-  if (!vendorRoles.includes(user?.role)) return <Navigate to="/admin" replace />;
+  if (!['FLEET_MANAGER','MAINTENANCE_SUPERVISOR','FIELD_AGENT'].includes(user?.role)) return <Navigate to="/admin" replace />;
   return children;
 };
 
 const SmartRedirect = () => {
   const { user, isAuthenticated } = useAuthStore();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  const vendorRoles = ['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR', 'FIELD_AGENT'];
-  return <Navigate to={vendorRoles.includes(user?.role) ? '/vendor' : '/admin'} replace />;
+  return <Navigate to={['FLEET_MANAGER','MAINTENANCE_SUPERVISOR','FIELD_AGENT'].includes(user?.role) ? '/vendor' : '/admin'} replace />;
 };
 
 const LoadingFallback = () => (
@@ -78,20 +72,18 @@ export default function App() {
       <Toaster
         position="top-right"
         toastOptions={{
-          style: { background: '#0F2040', color: '#E8ECF4', border: '1px solid rgba(255,255,255,0.1)', fontSize: '12px' },
-          success: { iconTheme: { primary: '#00C9A7', secondary: '#0F2040' } },
-          error: { iconTheme: { primary: '#E84B4B', secondary: '#0F2040' } },
+          style: { background:'#0F2040', color:'#E8ECF4', border:'1px solid rgba(255,255,255,0.1)', fontSize:'12px' },
+          success: { iconTheme: { primary:'#00C9A7', secondary:'#0F2040' } },
+          error:   { iconTheme: { primary:'#E84B4B', secondary:'#0F2040' } },
         }}
       />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
-          {/* Public */}
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/" element={<SmartRedirect />} />
 
-          {/* Workshop / Admin Portal */}
           <Route path="/admin" element={<RequireWorkshop><AdminLayout /></RequireWorkshop>}>
             <Route index element={<DashboardPage />} />
             <Route path="jobs" element={<JobsPage />} />
@@ -107,7 +99,6 @@ export default function App() {
             <Route path="settings" element={<SettingsPage />} />
           </Route>
 
-          {/* Vendor Portal */}
           <Route path="/vendor" element={<RequireVendor><VendorLayout /></RequireVendor>}>
             <Route index element={<VendorDashboardPage />} />
             <Route path="jobs" element={<VendorJobsPage />} />
@@ -117,6 +108,7 @@ export default function App() {
             <Route path="invoices" element={<VendorInvoicesPage />} />
             <Route path="team" element={<VendorTeamPage />} />
             <Route path="subscription" element={<VendorSubscriptionPage />} />
+            <Route path="chat" element={<TeamChatPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
