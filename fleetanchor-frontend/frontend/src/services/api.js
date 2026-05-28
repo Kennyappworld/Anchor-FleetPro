@@ -1,10 +1,6 @@
 import axios from "axios";
 
-// Railway backend URL - injected at build time by vite
-const RAILWAY_URL = typeof __API_URL__ !== "undefined"
-  ? __API_URL__
-  : "https://anchor-fleetpro-production.up.railway.app";
-
+const RAILWAY_URL = "https://anchor-fleetpro-production.up.railway.app";
 const API_BASE = RAILWAY_URL + "/api";
 
 const api = axios.create({
@@ -55,13 +51,10 @@ export default api;
 export const authService = {
   login: (data) => api.post("/auth/login", data),
   logout: () => api.post("/auth/logout"),
-  refresh: (refreshToken) => api.post("/auth/refresh", { refreshToken }),
+  refresh: (rt) => api.post("/auth/refresh", { refreshToken: rt }),
   forgotPassword: (email, accountType) => api.post("/auth/forgot-password", { email, accountType }),
   verifyOtp: (email, otp) => api.post("/auth/verify-otp", { email, otp }),
   resetPassword: (token, password) => api.post("/auth/reset-password", { token, password }),
-  setup2FA: () => api.post("/auth/2fa/setup"),
-  verify2FA: (token) => api.post("/auth/2fa/verify", { token }),
-  disable2FA: (token) => api.post("/auth/2fa/disable", { token }),
 };
 
 export const jobService = {
@@ -69,7 +62,6 @@ export const jobService = {
   getOne: (id) => api.get(`/jobs/${id}`),
   create: (data) => api.post("/jobs", data),
   updateStatus: (id, data) => api.patch(`/jobs/${id}/status`, data),
-  respondToEstimate: (id, data) => api.post(`/jobs/${id}/estimate-response`, data),
 };
 
 export const vehicleService = {
@@ -101,7 +93,7 @@ export const invoiceService = {
   list: (params) => api.get("/invoices", { params }),
   getOne: (id) => api.get(`/invoices/${id}`),
   create: (data) => api.post("/invoices", data),
-  confirmPayment: (id, paystackRef) => api.post(`/invoices/${id}/confirm-payment`, { paystackRef }),
+  confirmPayment: (id, ref) => api.post(`/invoices/${id}/confirm-payment`, { paystackRef: ref }),
   downloadPDF: (id, hideCost) => api.get(`/invoices/${id}/pdf`, { params: { hideCost }, responseType: "blob" }),
 };
 
@@ -131,4 +123,3 @@ export const userService = {
   update: (id, data) => api.patch(`/users/${id}`, data),
   suspend: (id) => api.post(`/users/${id}/suspend`),
 };
-
