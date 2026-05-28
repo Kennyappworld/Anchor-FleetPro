@@ -2,20 +2,16 @@ FROM node:20-slim
 
 WORKDIR /app
 
-# Install openssl for Prisma
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Copy package.json only
 COPY package.json ./
 
-# Install with flags to avoid failures
-RUN npm install --legacy-peer-deps --no-optional
+RUN npm install --legacy-peer-deps
 
-# Copy prisma and generate client
 COPY prisma ./prisma/
+
 RUN npx prisma generate
 
-# Copy all source files
 COPY . .
 
 EXPOSE 5000
