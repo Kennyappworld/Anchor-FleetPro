@@ -5,15 +5,13 @@ WORKDIR /app
 RUN apt-get update -y && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
-
 RUN npm install --legacy-peer-deps
 
 COPY prisma ./prisma/
-
 RUN npx prisma generate
 
 COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "npx prisma db push --accept-data-loss && node src/server.js"]
+CMD ["node", "src/server.js"]
