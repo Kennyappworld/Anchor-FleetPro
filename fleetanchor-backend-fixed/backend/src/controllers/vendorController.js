@@ -69,10 +69,13 @@ exports.create = async (req, res, next) => {
     const { companyName, contactEmail, contactPhone, oemId, address, contactPerson, plan } = req.body;
     const email = contactEmail || req.body.email;
 
-    // Generate 1-month trial + invite token
+    // Generate invite token + trial
     const inviteToken = crypto.randomBytes(32).toString('hex');
-    const inviteExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days to accept
-    const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30-day trial
+    const inviteExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Generate a readable temporary password
+    const tempPassword = 'Fleet@' + crypto.randomBytes(4).toString('hex').toUpperCase();
 
     const vendor = await prisma.vendor.create({
       data: {
@@ -81,36 +84,90 @@ exports.create = async (req, res, next) => {
         status: 'ACTIVE',
         inviteToken, inviteExpiry,
         trialEndsAt, trialPlan: plan || 'GROWTH',
-        inviteAccepted: false,
+        inviteAccepted: true, // account created directly — no setup page needed
       },
       include: { oem: { select: { name: true } } },
     });
 
-    // Send invite email (non-blocking)
+    // Auto-create Fleet Manager account
+    const bcrypt = require('bcryptjs');
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+    await prisma.user.create({
+      data: {
+        fullName: contactPerson || companyName,
+        email,
+        passwordHash,
+        role: 'FLEET_MANAGER',
+        vendorId: vendor.id,
+        oemId,
+        active: true,
+        mustChangePassword: true, // force password change on first login
+      },
+    });
+
+    // Send welcome email with full login details
     const frontendUrl = process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app';
-    const signupUrl = `${frontendUrl}/vendor/setup?token=${inviteToken}&vid=${vendor.id}`;
+    const loginUrl = `${frontendUrl}/login`;
 
     sendEmail({
       to: email,
-      subject: `You're invited to FleetAnchor Pro — ${companyName}`,
+      subject: `Welcome to FleetAnchor Pro — Your login details for ${companyName}`,
       html: `
-        <h2 style="color:#0A1628">Welcome to FleetAnchor Pro!</h2>
-        <p>You have been registered as a vendor on the <strong>${vendor.oem?.name || 'FleetAnchor'}</strong> maintenance platform.</p>
-        <p><strong>Company:</strong> ${companyName}</p>
-        <p><strong>Plan:</strong> ${plan || 'GROWTH'} — <em>30-day free trial included</em></p>
-        <p>Click the button below to set up your account and create your password:</p>
-        <p style="margin:24px 0">
-          <a href="${signupUrl}" style="background:#F5A623;color:#000;padding:12px 28px;border-radius:8px;font-weight:700;text-decoration:none;display:inline-block">
-            Activate My Account
-          </a>
-        </p>
-        <p style="font-size:12px;color:#888">This link expires in 7 days. If you did not expect this email, you can safely ignore it.</p>
-        <p style="font-size:12px;color:#888">Or copy this link: ${signupUrl}</p>
+        <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:580px;margin:0 auto">
+          <div style="background:#0A1628;padding:24px 28px;border-radius:12px 12px 0 0;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#F5A623">⚓ FleetAnchor Pro</div>
+            <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:1px">MAINTENANCE MANAGEMENT PLATFORM</div>
+          </div>
+          <div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+            <h2 style="color:#0A1628;margin-top:0">Welcome, ${contactPerson || companyName}! 🎉</h2>
+            <p>Your FleetAnchor Pro account for <strong>${companyName}</strong> has been created by <strong>${vendor.oem?.name || 'your OEM'}</strong>.</p>
+            <p>You are on a <strong>30-day free trial</strong> of the ${plan || 'GROWTH'} plan — no payment needed yet.</p>
+
+            <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:20px;margin:20px 0">
+              <p style="margin:0 0 12px;font-weight:700;color:#0A1628;font-size:13px">🔐 Your Login Details</p>
+              <table style="width:100%;font-size:13px">
+                <tr><td style="color:#666;padding:6px 0;width:40%">Login URL</td><td><a href="${loginUrl}" style="color:#1155CC;font-weight:600">${loginUrl}</a></td></tr>
+                <tr><td style="color:#666;padding:6px 0">Email / Username</td><td style="font-weight:600">${email}</td></tr>
+                <tr><td style="color:#666;padding:6px 0">Temporary Password</td><td><strong style="background:#FFF3DC;padding:3px 8px;border-radius:4px;letter-spacing:1px">${tempPassword}</strong></td></tr>
+                <tr><td style="color:#666;padding:6px 0">Plan</td><td><strong>${plan || 'GROWTH'} — 30-day free trial</strong></td></tr>
+              </table>
+            </div>
+
+            <div style="background:#FEF3CD;border:1px solid #F5A623;border-radius:8px;padding:12px 16px;margin:16px 0">
+              <p style="margin:0;font-size:12px;color:#7D4E00">⚠️ <strong>Important:</strong> You will be asked to change this temporary password when you first log in. Please keep these details safe until then.</p>
+            </div>
+
+            <p style="font-size:13px">Once logged in, you can:</p>
+            <ul style="font-size:13px;color:#444;line-height:1.8">
+              <li>Add your fleet vehicles (or import from Excel)</li>
+              <li>Create up to <strong>2 team members</strong> on your plan</li>
+              <li>Submit and track maintenance job requests</li>
+              <li>View maintenance history and invoices</li>
+            </ul>
+
+            <div style="text-align:center;margin:24px 0">
+              <a href="${loginUrl}" style="background:#F5A623;color:#000;font-weight:700;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:14px;display:inline-block">
+                Log In Now →
+              </a>
+            </div>
+
+            <p style="font-size:11px;color:#999;text-align:center">If you did not expect this email, contact ${vendor.oem?.name || 'your OEM administrator'}.</p>
+          </div>
+        </div>
       `,
-    }).catch(() => {}); // Don't fail if email fails
+    }).catch(() => {});
 
     await logAction(req, 'VENDOR_CREATED', 'Vendor', vendor.id);
-    res.status(201).json({ success: true, data: vendor, signupUrl });
+    res.status(201).json({
+      success: true,
+      data: vendor,
+      loginDetails: {
+        loginUrl,
+        email,
+        tempPassword,
+        message: 'Fleet Manager account created. Login details sent to vendor email.',
+      },
+    });
   } catch (err) { next(err); }
 };
 

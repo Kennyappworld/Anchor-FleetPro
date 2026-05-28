@@ -2,6 +2,7 @@ import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Wrench, Scan, Truck, History, Receipt, Users, CreditCard, LogOut, MessageCircle } from 'lucide-react';
 import { useAuthStore } from '../../context/authStore';
+import ChangePasswordModal from './ChangePasswordModal';
 import toast from 'react-hot-toast';
 
 const NAV = [
@@ -86,6 +87,7 @@ export default function VendorLayout() {
       <main className="flex-1 overflow-y-auto bg-navy">
         <Outlet/>
       </main>
+      {user?.mustChangePassword && <ChangePasswordModal forced={true} />}
     </div>
   );
 }

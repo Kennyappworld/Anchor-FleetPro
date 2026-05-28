@@ -96,6 +96,7 @@ exports.login = async (req, res) => {
         vendorId: user.vendorId,
         oemId: user.oemId,
         totpEnabled: user.totpEnabled,
+        mustChangePassword: user.mustChangePassword || false,
       },
     });
   } catch (err) {
@@ -418,6 +419,28 @@ exports.acceptVendorInvite = async (req, res) => {
     res.json({ success: true, message: 'Account created! You can now log in.' });
   } catch (err) {
     logger.error('acceptVendorInvite error:', err);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
+
+// ─── Change Password (first login or manual) ─────────────────────────────────
+exports.changePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) return res.status(400).json({ success: false, error: 'Current password is incorrect' });
+
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash, mustChangePassword: false },
+    });
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) {
+    logger.error('changePassword error:', err);
     res.status(500).json({ success: false, error: 'Server error' });
   }
 };

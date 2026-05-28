@@ -28,6 +28,13 @@ router.post("/:id/suspend",
   uc.suspend
 );
 
+router.post("/:id/resend-credentials",
+  requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER"]),
+  param("id").isUUID(),
+  validate,
+  uc.resendCredentials
+);
+
 router.delete("/:id",
   requireRole(["SUPER_ADMIN","OEM_ADMIN"]),
   param("id").isUUID(),

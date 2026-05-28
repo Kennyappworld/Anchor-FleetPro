@@ -57,6 +57,7 @@ export const authService = {
   resetPassword: (token, password) => api.post("/auth/reset-password", { token, password }),
   checkVendorInvite: (token) => api.get(`/auth/vendor-invite/${token}`),
   acceptVendorInvite: (data) => api.post("/auth/vendor-setup", data),
+  changePassword: (currentPassword, newPassword) => api.post("/auth/change-password", { currentPassword, newPassword }),
 };
 
 export const jobService = {
@@ -129,4 +130,5 @@ export const userService = {
   create: (data) => api.post("/users", data),
   update: (id, data) => api.patch(`/users/${id}`, data),
   suspend: (id) => api.post(`/users/${id}/suspend`),
+  resendCredentials: (id) => api.post(`/users/${id}/resend-credentials`),
 };

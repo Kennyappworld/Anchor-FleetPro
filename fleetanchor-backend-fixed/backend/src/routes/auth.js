@@ -86,9 +86,18 @@ router.get('/vendor-invite/:token', authController.checkVendorInvite);
 router.post('/vendor-setup',
   body('token').notEmpty(),
   body('fullName').trim().isLength({ min: 2 }),
-  body('password').isLength({ min: 12 }).matches(/[A-Z]/).matches(/[0-9]/).matches(/[^A-Za-z0-9]/),
+  body('password').isLength({ min: 8 }),
   validate,
   authController.acceptVendorInvite
+);
+
+// Change password (authenticated — used for mustChangePassword flow)
+router.post('/change-password',
+  authenticate,
+  body('currentPassword').notEmpty(),
+  body('newPassword').isLength({ min: 8 }),
+  validate,
+  authController.changePassword
 );
 
 module.exports = router;

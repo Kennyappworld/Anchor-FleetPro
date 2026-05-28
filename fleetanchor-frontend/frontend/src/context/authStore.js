@@ -33,6 +33,8 @@ export const useAuthStore = create(
 
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
 
+      setUser: (userData) => set({ user: userData }),
+
       updateUser: (userData) => set((state) => ({ user: { ...state.user, ...userData } })),
 
       hasRole: (...roles) => {

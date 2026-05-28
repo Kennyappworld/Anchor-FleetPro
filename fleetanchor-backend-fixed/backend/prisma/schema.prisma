@@ -91,6 +91,7 @@ model User {
   resetAttempts   Int        @default(0)
   lastResetAt     DateTime?
   active          Boolean    @default(true)
+  mustChangePassword Boolean @default(false)
   lastLoginAt     DateTime?
   lastLoginIp     String?
   createdAt       DateTime   @default(now())
