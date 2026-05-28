@@ -117,6 +117,9 @@ export const subscriptionService = {
   list: () => api.get("/subscriptions"),
   getForVendor: (vendorId) => api.get(`/subscriptions/${vendorId}`),
   initiate: (vendorId, plan) => api.post("/subscriptions/initiate", { vendorId, plan }),
+  verify: (reference) => api.get(`/subscriptions/verify?reference=${reference}`),
+  extend: (vendorId, days, plan) => api.post("/subscriptions/extend", { vendorId, days, plan }),
+  toggleDemo: (vendorId, enabled) => api.post("/subscriptions/demo", { vendorId, enabled }),
   cancel: (id) => api.post(`/subscriptions/${id}/cancel`),
 };
 

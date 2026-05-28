@@ -1,6 +1,6 @@
 const router = require("express").Router();
 const { authenticate, requireRole, scopeToTenant } = require("../middleware/auth");
-const { body, param } = require("express-validator");
+const { body, param, query } = require("express-validator");
 const { validate } = require("../middleware/validate");
 const sc = require("../controllers/subscriptionController");
 
@@ -17,8 +17,30 @@ router.post("/initiate",
   sc.initiate
 );
 
+router.get("/verify",
+  query("reference").notEmpty(),
+  validate,
+  sc.verify
+);
+
+router.post("/extend",
+  requireRole(["SUPER_ADMIN"]),
+  body("vendorId").isUUID(),
+  body("days").isInt({ min: 1, max: 3650 }),
+  validate,
+  sc.extend
+);
+
+router.post("/demo",
+  requireRole(["SUPER_ADMIN"]),
+  body("vendorId").isUUID(),
+  body("enabled").isBoolean(),
+  validate,
+  sc.toggleDemo
+);
+
 router.post("/:id/cancel",
-  requireRole(["SUPER_ADMIN","OEM_ADMIN"]),
+  requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER"]),
   param("id").isUUID(),
   validate,
   sc.cancel

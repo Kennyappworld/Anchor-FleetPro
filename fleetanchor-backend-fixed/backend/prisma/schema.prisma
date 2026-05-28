@@ -220,9 +220,12 @@ model Subscription {
   autoRenew      Boolean      @default(true)
   paystackSubCode String?
   paystackEmail  String?
+  paystackAuthCode String?
   status         SubStatus    @default(ACTIVE)
   warningAt7Days Boolean      @default(false)
   warningAt3Days Boolean      @default(false)
+  cancelledAt    DateTime?
+  renewedFromId  String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
