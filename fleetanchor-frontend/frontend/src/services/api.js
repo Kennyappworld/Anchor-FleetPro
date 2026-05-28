@@ -1,17 +1,20 @@
-import axios from 'axios';
+import axios from "axios";
+
+// Railway backend URL - hardcoded as fallback
+const RAILWAY_URL = "https://anchor-fleetpro-production.up.railway.app";
+const API_BASE = (import.meta.env.VITE_API_URL || RAILWAY_URL) + "/api";
 
 const api = axios.create({
-  baseURL: (import.meta.env.VITE_API_URL || 'https://anchor-fleetpro-production.up.railway.app') + '/api',
+  baseURL: API_BASE,
   timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { "Content-Type": "application/json" },
 });
 
-// ─── Request interceptor — attach token ───────────────────────────────────────
+// Request interceptor - attach token
 api.interceptors.request.use(
   (config) => {
-    // Get token from Zustand persisted store
     try {
-      const stored = JSON.parse(localStorage.getItem('fleetanchor-auth') || '{}');
+      const stored = JSON.parse(localStorage.getItem("fleetanchor-auth") || "{}");
       const token = stored?.state?.accessToken;
       if (token) config.headers.Authorization = `Bearer ${token}`;
     } catch {}
@@ -20,137 +23,111 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// ─── Response interceptor — handle 401 / token refresh ────────────────────────
-let isRefreshing = false;
-let failedQueue = [];
-
-const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => (error ? prom.reject(error) : prom.resolve(token)));
-  failedQueue = [];
-};
-
+// Response interceptor - handle 401
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const original = error.config;
-
-    if (error.response?.status === 401 && !original._retry && error.response?.data?.code === 'TOKEN_EXPIRED') {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        }).then((token) => {
-          original.headers.Authorization = `Bearer ${token}`;
-          return api(original);
-        });
-      }
-
+    if (error.response?.status === 401 && !original._retry) {
       original._retry = true;
-      isRefreshing = true;
-
       try {
-        const stored = JSON.parse(localStorage.getItem('fleetanchor-auth') || '{}');
+        const stored = JSON.parse(localStorage.getItem("fleetanchor-auth") || "{}");
         const refreshToken = stored?.state?.refreshToken;
-        if (!refreshToken) throw new Error('No refresh token');
-
-        const res = await axios.post('/api/auth/refresh', { refreshToken });
-        const { accessToken, refreshToken: newRefresh } = res.data;
-
-        // Update stored tokens
-        const parsedStore = JSON.parse(localStorage.getItem('fleetanchor-auth') || '{}');
-        if (parsedStore.state) {
-          parsedStore.state.accessToken = accessToken;
-          parsedStore.state.refreshToken = newRefresh;
-          localStorage.setItem('fleetanchor-auth', JSON.stringify(parsedStore));
+        if (refreshToken) {
+          const res = await axios.post(`${RAILWAY_URL}/api/auth/refresh`, { refreshToken });
+          const { accessToken } = res.data.data;
+          const newStored = { ...stored, state: { ...stored.state, accessToken } };
+          localStorage.setItem("fleetanchor-auth", JSON.stringify(newStored));
+          original.headers.Authorization = `Bearer ${accessToken}`;
+          return api(original);
         }
-
-        processQueue(null, accessToken);
-        original.headers.Authorization = `Bearer ${accessToken}`;
-        return api(original);
-      } catch (refreshError) {
-        processQueue(refreshError, null);
-        localStorage.removeItem('fleetanchor-auth');
-        window.location.href = '/login';
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
-      }
+      } catch {}
+      localStorage.removeItem("fleetanchor-auth");
+      window.location.href = "/login";
     }
-
     return Promise.reject(error);
   }
 );
 
 export default api;
 
-// ─── Service helpers ──────────────────────────────────────────────────────────
+// Service helpers
 export const authService = {
-  login: (data) => api.post('/auth/login', data),
-  logout: () => api.post('/auth/logout'),
-  forgotPassword: (data) => api.post('/auth/forgot-password', data),
-  verifyOtp: (data) => api.post('/auth/verify-otp', data),
-  resetPassword: (data) => api.post('/auth/reset-password', data),
-  setup2FA: () => api.post('/auth/2fa/setup'),
-  verify2FA: (code) => api.post('/auth/2fa/verify', { code }),
-  register: (data) => api.post('/auth/register', data),
+  login: (data) => api.post("/auth/login", data),
+  logout: () => api.post("/auth/logout"),
+  refresh: (refreshToken) => api.post("/auth/refresh", { refreshToken }),
+  forgotPassword: (email, accountType) => api.post("/auth/forgot-password", { email, accountType }),
+  verifyOtp: (email, otp) => api.post("/auth/verify-otp", { email, otp }),
+  resetPassword: (token, password) => api.post("/auth/reset-password", { token, password }),
+  setup2FA: () => api.post("/auth/2fa/setup"),
+  verify2FA: (token) => api.post("/auth/2fa/verify", { token }),
+  disable2FA: (token) => api.post("/auth/2fa/disable", { token }),
 };
 
 export const jobService = {
-  list: (params) => api.get('/jobs', { params }),
-  get: (id) => api.get(`/jobs/${id}`),
-  create: (data) => api.post('/jobs', data),
+  list: (params) => api.get("/jobs", { params }),
+  getOne: (id) => api.get(`/jobs/${id}`),
+  create: (data) => api.post("/jobs", data),
   updateStatus: (id, data) => api.patch(`/jobs/${id}/status`, data),
   respondToEstimate: (id, data) => api.post(`/jobs/${id}/estimate-response`, data),
-  vehicleHistory: (params) => api.get('/jobs/vehicle-history', { params }),
 };
 
 export const vehicleService = {
-  list: (params) => api.get('/vehicles', { params }),
-  get: (id) => api.get(`/vehicles/${id}`),
-  create: (data) => api.post('/vehicles', data),
-  search: (query) => api.get('/vehicles/search', { params: { q: query } }),
+  list: (params) => api.get("/vehicles", { params }),
+  search: (q) => api.get("/vehicles/search", { params: { q } }),
+  getOne: (id) => api.get(`/vehicles/${id}`),
+  history: (id, hideCost) => api.get(`/vehicles/${id}/history`, { params: { hideCost } }),
+  create: (data) => api.post("/vehicles", data),
+  update: (id, data) => api.patch(`/vehicles/${id}`, data),
 };
 
 export const vendorService = {
-  list: (params) => api.get('/vendors', { params }),
-  get: (id) => api.get(`/vendors/${id}`),
-  create: (data) => api.post('/vendors', data),
-  suspend: (id, data) => api.post(`/vendors/${id}/suspend`, data),
+  list: (params) => api.get("/vendors", { params }),
+  getOne: (id) => api.get(`/vendors/${id}`),
+  stats: (id) => api.get(`/vendors/${id}/stats`),
+  create: (data) => api.post("/vendors", data),
+  update: (id, data) => api.patch(`/vendors/${id}`, data),
+  suspend: (id, reason) => api.post(`/vendors/${id}/suspend`, { reason }),
   reinstate: (id) => api.post(`/vendors/${id}/reinstate`),
 };
 
 export const estimateService = {
-  create: (data) => api.post('/estimates', data),
-  update: (id, data) => api.put(`/estimates/${id}`, data),
+  getForJob: (jobId) => api.get(`/estimates/${jobId}`),
+  create: (data) => api.post("/estimates", data),
+  update: (id, data) => api.patch(`/estimates/${id}`, data),
 };
 
 export const invoiceService = {
-  list: (params) => api.get('/invoices', { params }),
-  get: (id) => api.get(`/invoices/${id}`),
-  confirmPayment: (id) => api.post(`/invoices/${id}/confirm-payment`),
-  generatePdf: (id) => api.get(`/invoices/${id}/pdf`, { responseType: 'blob' }),
+  list: (params) => api.get("/invoices", { params }),
+  getOne: (id) => api.get(`/invoices/${id}`),
+  create: (data) => api.post("/invoices", data),
+  confirmPayment: (id, paystackRef) => api.post(`/invoices/${id}/confirm-payment`, { paystackRef }),
+  downloadPDF: (id, hideCost) => api.get(`/invoices/${id}/pdf`, { params: { hideCost }, responseType: "blob" }),
 };
 
 export const analyticsService = {
-  dashboard: (params) => api.get('/analytics/dashboard', { params }),
-  revenue: (params) => api.get('/analytics/revenue', { params }),
-  vehicles: (params) => api.get('/analytics/vehicles', { params }),
+  getDashboard: () => api.get("/analytics/dashboard"),
+  getMonthlyRevenue: () => api.get("/analytics/monthly-revenue"),
+  getTopVehicles: () => api.get("/analytics/top-vehicles"),
 };
 
 export const auditService = {
-  list: (params) => api.get('/audit', { params }),
-  verify: () => api.get('/audit/verify'),
-  export: (params) => api.get('/audit/export', { params, responseType: 'blob' }),
+  list: (params) => api.get("/audit", { params }),
+  verifyChain: () => api.get("/audit/verify-chain"),
+  export: (format, hideCost) => api.get("/audit/export", { params: { format, hideCost }, responseType: "blob" }),
 };
 
 export const subscriptionService = {
-  list: () => api.get('/subscriptions'),
-  initiate: (data) => api.post('/subscriptions/initiate', data),
+  list: () => api.get("/subscriptions"),
+  getForVendor: (vendorId) => api.get(`/subscriptions/${vendorId}`),
+  initiate: (vendorId, plan) => api.post("/subscriptions/initiate", { vendorId, plan }),
   cancel: (id) => api.post(`/subscriptions/${id}/cancel`),
 };
 
 export const userService = {
-  list: (params) => api.get('/users', { params }),
-  create: (data) => api.post('/auth/register', data),
+  me: () => api.get("/users/me"),
+  list: (params) => api.get("/users", { params }),
+  create: (data) => api.post("/users", data),
+  update: (id, data) => api.patch(`/users/${id}`, data),
   suspend: (id) => api.post(`/users/${id}/suspend`),
-  reinstate: (id) => api.post(`/users/${id}/reinstate`),
 };
