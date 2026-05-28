@@ -1,8 +1,11 @@
 import axios from "axios";
 
-// Railway backend URL - hardcoded as fallback
-const RAILWAY_URL = "https://anchor-fleetpro-production.up.railway.app";
-const API_BASE = (import.meta.env.VITE_API_URL || RAILWAY_URL) + "/api";
+// Railway backend URL - injected at build time by vite
+const RAILWAY_URL = typeof __API_URL__ !== "undefined"
+  ? __API_URL__
+  : "https://anchor-fleetpro-production.up.railway.app";
+
+const API_BASE = RAILWAY_URL + "/api";
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -10,7 +13,6 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Request interceptor - attach token
 api.interceptors.request.use(
   (config) => {
     try {
@@ -23,7 +25,6 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor - handle 401
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -51,7 +52,6 @@ api.interceptors.response.use(
 
 export default api;
 
-// Service helpers
 export const authService = {
   login: (data) => api.post("/auth/login", data),
   logout: () => api.post("/auth/logout"),
@@ -131,3 +131,4 @@ export const userService = {
   update: (id, data) => api.patch(`/users/${id}`, data),
   suspend: (id) => api.post(`/users/${id}/suspend`),
 };
+
