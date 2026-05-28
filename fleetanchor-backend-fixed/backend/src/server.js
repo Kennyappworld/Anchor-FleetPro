@@ -71,6 +71,7 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/setup", require("./routes/setup"));
 
 app.use(notFoundHandler);
 app.use(errorHandler);
