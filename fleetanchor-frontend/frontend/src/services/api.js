@@ -80,6 +80,7 @@ export const vehicleService = {
 
 export const vendorService = {
   list: (params) => api.get("/vendors", { params }),
+  listDeleted: () => api.get("/vendors/deleted/list"),
   getOne: (id) => api.get(`/vendors/${id}`),
   stats: (id) => api.get(`/vendors/${id}/stats`),
   create: (data) => api.post("/vendors", data),
@@ -87,6 +88,7 @@ export const vendorService = {
   suspend: (id, reason) => api.post(`/vendors/${id}/suspend`, { reason }),
   reinstate: (id) => api.post(`/vendors/${id}/reinstate`),
   remove: (id) => api.delete(`/vendors/${id}`),
+  restore: (id) => api.post(`/vendors/${id}/restore`),
 };
 
 export const estimateService = {

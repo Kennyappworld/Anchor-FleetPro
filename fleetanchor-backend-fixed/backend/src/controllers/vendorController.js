@@ -13,7 +13,8 @@ function tenantFilter(req) {
 exports.list = async (req, res, next) => {
   try {
     const { page = 1, limit = 50, status } = req.query;
-    const where = { ...tenantFilter(req), ...(status ? { status } : {}) };
+    // Always exclude soft-deleted from normal list
+    const where = { ...tenantFilter(req), deletedAt: null, ...(status ? { status } : {}) };
     const [vendors, total] = await Promise.all([
       prisma.vendor.findMany({
         where, skip: (page - 1) * limit, take: +limit,
@@ -217,21 +218,96 @@ exports.remove = async (req, res, next) => {
   try {
     const vendor = await prisma.vendor.findUnique({
       where: { id: req.params.id },
-      include: { _count: { select: { users: true, vehicles: true, subscriptions: true } } },
+      include: { _count: { select: { users: true, vehicles: true } } },
     });
     if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+    if (vendor.deletedAt) return res.status(400).json({ success: false, error: 'Vendor is already deleted' });
 
-    // Delete in order: subscriptions, users, vehicles, then vendor
-    await prisma.subscription.deleteMany({ where: { vendorId: vendor.id } });
-    await prisma.user.deleteMany({ where: { vendorId: vendor.id } });
-    // Detach vehicles (preserve job history) rather than hard delete
-    await prisma.vehicle.updateMany({ where: { vendorId: vendor.id }, data: { status: 'DECOMMISSIONED' } });
-    await prisma.vendor.delete({ where: { id: vendor.id } });
+    const purgeAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days = 3 months
 
-    await logAction(req, 'VENDOR_DELETED', 'Vendor', vendor.id, {
+    // Soft-delete: mark vendor + all their users as deleted
+    await prisma.$transaction([
+      prisma.vendor.update({
+        where: { id: vendor.id },
+        data: {
+          deletedAt: new Date(),
+          deletedBy: req.user.id,
+          purgeAt,
+          status: 'SUSPENDED',
+        },
+      }),
+      prisma.user.updateMany({
+        where: { vendorId: vendor.id },
+        data: { active: false, deletedAt: new Date() },
+      }),
+      prisma.subscription.updateMany({
+        where: { vendorId: vendor.id, status: 'ACTIVE' },
+        data: { status: 'CANCELLED', cancelledAt: new Date() },
+      }),
+    ]);
+
+    await logAction(req, 'VENDOR_SOFT_DELETED', 'Vendor', vendor.id, {
       companyName: vendor.companyName,
-      usersRemoved: vendor._count.users,
+      purgeAt: purgeAt.toISOString(),
+      usersDeactivated: vendor._count.users,
     });
-    res.json({ success: true, message: `Vendor "${vendor.companyName}" deleted permanently.` });
+
+    res.json({
+      success: true,
+      message: `"${vendor.companyName}" deleted. Data retained for 90 days — restorable by Super Admin until ${purgeAt.toDateString()}.`,
+      purgeAt,
+    });
+  } catch (err) { next(err); }
+};
+
+exports.restore = async (req, res, next) => {
+  try {
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: req.params.id },
+      include: { users: { where: { deletedAt: { not: null } } } },
+    });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+    if (!vendor.deletedAt) return res.status(400).json({ success: false, error: 'Vendor is not deleted' });
+    if (vendor.purgeAt && new Date() > vendor.purgeAt) {
+      return res.status(410).json({ success: false, error: 'Restoration window has expired. Data has been purged.' });
+    }
+
+    await prisma.$transaction([
+      prisma.vendor.update({
+        where: { id: vendor.id },
+        data: { deletedAt: null, deletedBy: null, purgeAt: null, status: 'ACTIVE' },
+      }),
+      prisma.user.updateMany({
+        where: { vendorId: vendor.id, deletedAt: { not: null } },
+        data: { active: true, deletedAt: null },
+      }),
+    ]);
+
+    await logAction(req, 'VENDOR_RESTORED', 'Vendor', vendor.id, { companyName: vendor.companyName, restoredBy: req.user.id });
+
+    res.json({
+      success: true,
+      message: `"${vendor.companyName}" restored successfully. All user accounts reactivated.`,
+    });
+  } catch (err) { next(err); }
+};
+
+exports.listDeleted = async (req, res, next) => {
+  try {
+    const deleted = await prisma.vendor.findMany({
+      where: { deletedAt: { not: null } },
+      include: {
+        _count: { select: { users: true, vehicles: true } },
+        oem: { select: { name: true } },
+      },
+      orderBy: { deletedAt: 'desc' },
+    });
+    const now = new Date();
+    const enriched = deleted.map(v => ({
+      ...v,
+      daysUntilPurge: v.purgeAt ? Math.max(0, Math.ceil((new Date(v.purgeAt) - now) / 86400000)) : null,
+      canRestore: v.purgeAt ? new Date() < new Date(v.purgeAt) : true,
+    }));
+    res.json({ success: true, data: enriched });
   } catch (err) { next(err); }
 };

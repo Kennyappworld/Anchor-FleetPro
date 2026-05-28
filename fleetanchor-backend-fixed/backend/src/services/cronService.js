@@ -47,6 +47,45 @@ function startCronJobs() {
   } catch (err) {
     logger.warn("Failed to start backup cron:", err.message);
   }
+
+  try {
+    // Daily purge check - 3:00 AM WAT — permanently delete vendors past their 90-day window
+    const purge = new cron("0 3 * * *", async () => {
+      try {
+        const { PrismaClient } = require("@prisma/client");
+        const prisma = new PrismaClient();
+        const now = new Date();
+
+        const expired = await prisma.vendor.findMany({
+          where: { deletedAt: { not: null }, purgeAt: { lte: now } },
+          include: { _count: { select: { users: true, vehicles: true } } },
+        });
+
+        for (const vendor of expired) {
+          try {
+            await prisma.subscription.deleteMany({ where: { vendorId: vendor.id } });
+            await prisma.user.deleteMany({ where: { vendorId: vendor.id } });
+            await prisma.vehicle.updateMany({ where: { vendorId: vendor.id }, data: { status: "DECOMMISSIONED" } });
+            await prisma.vendor.delete({ where: { id: vendor.id } });
+            logger.info(`[PURGE] Permanently deleted vendor: ${vendor.companyName} (${vendor.id})`);
+          } catch (e) {
+            logger.error(`[PURGE] Failed to purge vendor ${vendor.id}:`, e.message);
+          }
+        }
+
+        if (expired.length > 0) {
+          logger.info(`[PURGE] Completed — ${expired.length} vendor(s) permanently removed`);
+        }
+        await prisma.$disconnect();
+      } catch (err) {
+        logger.error("Purge job failed:", err.message);
+      }
+    }, null, true, "Africa/Lagos");
+    jobs.push(purge);
+    logger.info("Vendor purge cron job scheduled (daily 3 AM WAT)");
+  } catch (err) {
+    logger.warn("Failed to start purge cron:", err.message);
+  }
 }
 
 function stopCronJobs() {

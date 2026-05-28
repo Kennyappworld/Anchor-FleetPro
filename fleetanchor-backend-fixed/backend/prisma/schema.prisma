@@ -63,6 +63,9 @@ model Vendor {
   trialEndsAt   DateTime?
   trialPlan     PlanTier?
   demoMode      Boolean       @default(false)
+  deletedAt     DateTime?
+  deletedBy     String?
+  purgeAt       DateTime?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
   users         User[]
@@ -92,6 +95,7 @@ model User {
   lastResetAt     DateTime?
   active          Boolean    @default(true)
   mustChangePassword Boolean @default(false)
+  deletedAt       DateTime?
   lastLoginAt     DateTime?
   lastLoginIp     String?
   createdAt       DateTime   @default(now())

@@ -49,4 +49,16 @@ router.delete('/:id',
   vc.remove
 );
 
+router.post('/:id/restore',
+  requireRole(['SUPER_ADMIN']),
+  param('id').isUUID(),
+  validate,
+  vc.restore
+);
+
+router.get('/deleted/list',
+  requireRole(['SUPER_ADMIN']),
+  vc.listDeleted
+);
+
 module.exports = router;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Ban, CheckCircle, Building2, X, ChevronDown, Mail, Phone, MapPin, User, Trash2, AlertTriangle } from 'lucide-react';
+import { Search, Plus, Ban, CheckCircle, Building2, X, ChevronDown, Mail, Phone, MapPin, User, Trash2, AlertTriangle, RotateCcw, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { vendorService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
@@ -94,6 +94,32 @@ export default function VendorsPage() {
     } catch { toast.error('Failed to reinstate vendor'); }
   };
 
+  const [deletedVendors, setDeletedVendors] = useState([]);
+  const [showRecycleBin, setShowRecycleBin] = useState(false);
+  const [loadingDeleted, setLoadingDeleted] = useState(false);
+  const [restoring, setRestoring] = useState(null);
+
+  const fetchDeleted = async () => {
+    setLoadingDeleted(true);
+    try {
+      const res = await vendorService.listDeleted();
+      setDeletedVendors(res.data.data || []);
+    } catch { toast.error('Failed to load deleted vendors'); }
+    finally { setLoadingDeleted(false); }
+  };
+
+  const doRestore = async (vendor) => {
+    setRestoring(vendor.id);
+    try {
+      await vendorService.restore(vendor.id);
+      setDeletedVendors(prev => prev.filter(v => v.id !== vendor.id));
+      toast.success(`"${vendor.companyName}" restored! All accounts reactivated.`);
+      fetchVendors(); // refresh main list
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to restore vendor');
+    } finally { setRestoring(null); }
+  };
+
   const doDelete = async () => {
     if (!deleteModal) return;
     setDeleting(true);
@@ -101,7 +127,7 @@ export default function VendorsPage() {
       await vendorService.remove(deleteModal.id);
       setVendors(prev => prev.filter(v => v.id !== deleteModal.id));
       setDeleteModal(null);
-      toast.success(`"${deleteModal.companyName || deleteModal.name}" deleted permanently.`);
+      toast.success(`"${deleteModal.companyName || deleteModal.name}" moved to recycle bin. Restorable for 90 days.`);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to delete vendor');
     } finally { setDeleting(false); }
@@ -220,10 +246,10 @@ export default function VendorsPage() {
               </div>
             </div>
             <p className="text-xs text-[var(--text)] mb-1">
-              You are about to permanently delete <strong>{deleteModal.companyName || deleteModal.name}</strong>.
+              You are about to delete <strong>{deleteModal.companyName || deleteModal.name}</strong>.
             </p>
             <p className="text-[11px] text-[var(--text3)] mb-4">
-              This will remove all their user accounts and subscription records. Vehicle history will be preserved but vehicles will be marked as decommissioned.
+              Their data will be <strong className="text-[var(--text)]">retained for 90 days</strong> and can be fully restored by Super Admin during that window. After 90 days it is permanently removed.
             </p>
             <div className="bg-anchor-red/10 border border-anchor-red/20 rounded-lg px-3 py-2 mb-4">
               <p className="text-[11px] text-anchor-red">
@@ -282,6 +308,73 @@ export default function VendorsPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Recycle Bin ── Super Admin only */}
+      {user?.role === 'SUPER_ADMIN' && (
+        <div className="px-5 pb-5">
+          <button
+            onClick={() => { setShowRecycleBin(!showRecycleBin); if (!showRecycleBin) fetchDeleted(); }}
+            className="flex items-center gap-2 text-xs text-[var(--text3)] hover:text-[var(--text)] transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Recycle Bin</span>
+            {deletedVendors.length > 0 && (
+              <span className="bg-anchor-red/20 text-anchor-red text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                {deletedVendors.length}
+              </span>
+            )}
+            <ChevronDown className={`w-3 h-3 transition-transform ${showRecycleBin ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showRecycleBin && (
+            <div className="mt-3 card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Trash2 className="w-4 h-4 text-anchor-red" />
+                <h3 className="text-xs font-semibold text-[var(--text)]">Deleted Vendors</h3>
+                <span className="text-[10px] text-[var(--text3)]">— restorable within 90 days of deletion</span>
+              </div>
+
+              {loadingDeleted ? (
+                <p className="text-xs text-[var(--text3)] py-2">Loading…</p>
+              ) : deletedVendors.length === 0 ? (
+                <p className="text-xs text-[var(--text3)] py-2">No deleted vendors. Recycle bin is empty.</p>
+              ) : (
+                <div className="space-y-2">
+                  {deletedVendors.map(v => (
+                    <div key={v.id} className="flex items-center gap-3 bg-white/[0.03] border border-white/[0.06] rounded-lg px-3 py-2.5">
+                      <Building2 className="w-4 h-4 text-[var(--text3)] shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[var(--text)]">{v.companyName}</p>
+                        <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                          <span className="text-[10px] text-[var(--text3)]">{v.contactEmail}</span>
+                          <span className="text-[10px] text-[var(--text3)]">via {v.oem?.name}</span>
+                          <span className="text-[10px] text-[var(--text3)]">
+                            Deleted {v.deletedAt ? new Date(v.deletedAt).toDateString() : '—'}
+                          </span>
+                          <span className={`flex items-center gap-1 text-[10px] font-semibold ${v.daysUntilPurge <= 14 ? 'text-anchor-red' : 'text-anchor-green'}`}>
+                            <Clock className="w-3 h-3" />
+                            {v.canRestore ? `${v.daysUntilPurge} days until permanent deletion` : 'Expired — cannot restore'}
+                          </span>
+                        </div>
+                      </div>
+                      {v.canRestore && (
+                        <button
+                          onClick={() => doRestore(v)}
+                          disabled={restoring === v.id}
+                          className="shrink-0 flex items-center gap-1.5 text-[10px] font-semibold text-anchor-green border border-anchor-green/30 px-2.5 py-1.5 rounded-lg hover:bg-anchor-green/10 disabled:opacity-50 transition-colors"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                          {restoring === v.id ? 'Restoring…' : 'Restore'}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
