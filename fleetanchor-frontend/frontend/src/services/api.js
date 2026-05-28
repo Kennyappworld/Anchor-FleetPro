@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: (import.meta.env.VITE_API_URL || 'https://anchor-fleetpro-production.up.railway.app') + '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 });
