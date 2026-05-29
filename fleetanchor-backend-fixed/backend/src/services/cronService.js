@@ -11,7 +11,24 @@ function startCronJobs() {
   }
 
   try {
-    // Daily subscription check - 1:00 AM WAT
+    // Monthly fleet report — 1st of each month, 7:00 AM WAT (GROWTH + ENTERPRISE vendors)
+    const monthlyReport = new cron('0 7 1 * *', async () => {
+      try {
+        logger.info('Running monthly fleet maintenance reports...');
+        const { sendMonthlyReports } = require('./monthlyReportService');
+        const result = await sendMonthlyReports();
+        logger.info(`[MONTHLY REPORT] Complete — ${result.sent} sent, ${result.failed} failed`);
+      } catch (err) {
+        logger.error('Monthly report job failed:', err.message);
+      }
+    }, null, true, 'Africa/Lagos');
+    jobs.push(monthlyReport);
+    logger.info('Monthly report cron scheduled (1st of each month, 7 AM WAT)');
+  } catch (err) {
+    logger.warn('Failed to start monthly report cron:', err.message);
+  }
+
+  try {
     const subCheck = new cron("0 1 * * *", async () => {
       try {
         logger.info("Running subscription expiry check...");

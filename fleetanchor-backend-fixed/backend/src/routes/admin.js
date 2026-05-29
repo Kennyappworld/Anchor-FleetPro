@@ -142,4 +142,33 @@ router.post('/test-email', async (req, res) => {
   }
 });
 
+// POST /api/admin/reports/send-monthly — manually trigger monthly reports
+router.post('/reports/send-monthly', async (req, res) => {
+  try {
+    const { sendMonthlyReports } = require('../services/monthlyReportService');
+    const result = await sendMonthlyReports();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/reports/preview — preview report for a specific vendor
+router.post('/reports/preview', async (req, res) => {
+  try {
+    const { vendorId, month, year } = req.body;
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 1 } },
+    });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+    const { generateMonthlyReport, buildReportEmail } = require('../services/monthlyReportService');
+    const report = await generateMonthlyReport(vendor, month || new Date().getMonth() || 12, year || new Date().getFullYear());
+    const html = buildReportEmail(report);
+    res.json({ success: true, data: report, html });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

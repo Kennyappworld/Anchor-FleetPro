@@ -378,6 +378,47 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* ── MONTHLY REPORTS ───────────────────────── */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-lg">📊</span>
+          <h3 className="font-semibold text-[var(--text)]">MONTHLY FLEET REPORTS</h3>
+        </div>
+        <p className="text-[12px] text-[var(--text3)] mb-4">
+          Automatically sent on the <strong>1st of each month</strong> to all <strong>Growth</strong> and <strong>Enterprise</strong> vendors.
+          Reports include: total jobs, cost breakdown, turnaround time, downtime analysis, top failure categories, most serviced vehicles, month-on-month comparison, and AI-driven insights.
+        </p>
+        <div className="bg-[var(--bg2)] rounded-lg p-3 mb-4 text-[12px] text-[var(--text3)] space-y-1">
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Cost analysis (parts vs labour, avg per job, projected annual)</div>
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Turnaround time (avg, fastest, slowest)</div>
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Fleet downtime rate + workshop utilisation %</div>
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Top 5 maintenance categories with frequency bars</div>
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Most serviced vehicles with cost per vehicle</div>
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Month-on-month comparison table</div>
+          <div className="flex items-center gap-2"><span className="text-green-400">✓</span> Smart alerts (high downtime, repeat offender vehicles, cost spikes)</div>
+        </div>
+        <button
+          onClick={async () => {
+            try {
+              setSendingTest(true);
+              const res = await adminService.sendMonthlyReports();
+              toast.success(`Reports sent — ${res.data.sent} vendors notified`);
+            } catch (err) {
+              toast.error(err.response?.data?.error || 'Failed to send reports');
+            } finally {
+              setSendingTest(false);
+            }
+          }}
+          disabled={sendingTest}
+          className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50"
+        >
+          <span>📤</span>
+          {sendingTest ? 'Sending reports…' : 'Send This Month\'s Reports Now'}
+        </button>
+        <p className="text-[10px] text-[var(--text3)] mt-2">Only Growth + Enterprise vendors with active subscriptions will receive a report.</p>
+      </div>
+
     </div>
   );
 }

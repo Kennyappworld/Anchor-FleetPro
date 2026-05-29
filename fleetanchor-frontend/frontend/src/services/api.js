@@ -140,6 +140,7 @@ export const adminService = {
   backupStatus: () => api.get("/admin/backup/status"),
   runBackup: () => api.post("/admin/backup/run"),
   testEmail: (to) => api.post("/admin/test-email", { to }),
+  sendMonthlyReports: () => api.post("/admin/reports/send-monthly"),
 };
 
 export const platformService = {
