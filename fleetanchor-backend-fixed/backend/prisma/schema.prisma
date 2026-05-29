@@ -73,6 +73,7 @@ model Vendor {
   users         User[]
   vehicles      Vehicle[]
   subscriptions Subscription[]
+  driverSignupRequests DriverSignupRequest[]
 
   @@index([oemId])
   @@index([deletedAt])
@@ -290,6 +291,7 @@ model Notification {
 
 // ─── ENUMS ────────────────────────────────────────────────────────────────────
 enum PlanTier {
+  STARTER
   GROWTH
   ENTERPRISE
   OEM_WHITE_LABEL
@@ -302,12 +304,46 @@ enum UserRole {
   FLEET_MANAGER
   MAINTENANCE_SUPERVISOR
   FIELD_AGENT
+  DRIVER
 }
 
 enum VendorStatus {
   ACTIVE
   SUSPENDED
   EXPIRED
+}
+
+// ─── DRIVER SIGNUP REQUESTS ───────────────────────────────────────────────────
+model DriverSignupRequest {
+  id           String   @id @default(uuid())
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+  fullName     String
+  phone        String
+  email        String?
+  vehicleScan  String   // plate number or VIN scanned
+  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  rejectedReason String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime @default(now())
+  @@map("driver_signup_requests")
+}
+
+// ─── PLATFORM SETTINGS (Super Admin configurable) ────────────────────────────
+model PlatformSettings {
+  id            String   @id @default("singleton")
+  starterMonthly  Int    @default(45000)
+  starterAnnual   Int    @default(450000)
+  growthMonthly   Int    @default(95000)
+  growthAnnual    Int    @default(950000)
+  enterpriseMonthly Int  @default(250000)
+  enterpriseAnnual  Int  @default(2500000)
+  annualDiscountPct Float @default(16.7)
+  trialDays       Int    @default(30)
+  updatedAt     DateTime @updatedAt
+  updatedBy     String?
+  @@map("platform_settings")
 }
 
 enum VehicleStatus {

@@ -127,6 +127,8 @@ app.use("/api/audit", auditRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/drivers", require("./routes/drivers"));
+app.use("/api/platform", require("./routes/platform"));
 app.use("/api/setup", require("./routes/setup"));
 
 app.use(notFoundHandler);

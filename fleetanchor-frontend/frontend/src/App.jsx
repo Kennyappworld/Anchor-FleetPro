@@ -8,6 +8,7 @@ const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'));
 const VendorSetupPage = lazy(() => import('./pages/auth/VendorSetupPage'));
+const DriverSignupPage = lazy(() => import('./pages/auth/DriverSignupPage'));
 
 const AdminLayout = lazy(() => import('./components/shared/AdminLayout'));
 const DashboardPage = lazy(() => import('./pages/dashboard/DashboardPage'));
@@ -85,6 +86,7 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/vendor/setup" element={<VendorSetupPage />} />
+          <Route path="/driver/signup" element={<DriverSignupPage />} />
           <Route path="/" element={<SmartRedirect />} />
 
           <Route path="/admin" element={<RequireWorkshop><AdminLayout /></RequireWorkshop>}>

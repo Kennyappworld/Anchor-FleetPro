@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Eye, EyeOff, HardDrive, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Clock, Send, Mail } from 'lucide-react';
+import { Save, Eye, EyeOff, HardDrive, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Clock, Send, Mail, DollarSign } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { adminService } from '../../services/api';
+import { adminService, platformService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
 export default function SettingsPage() {
@@ -29,11 +29,19 @@ export default function SettingsPage() {
   const [testEmailAddr, setTestEmailAddr] = useState('');
   const [sendingTest, setSendingTest] = useState(false);
 
+  // Pricing state
+  const [pricing, setPricing] = useState(null);
+  const [pricingDirty, setPricingDirty] = useState({});
+  const [savingPricing, setSavingPricing] = useState(false);
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const save = () => toast.success('Settings saved — update actual values in Railway environment variables.');
 
   useEffect(() => {
-    if (isSuperAdmin) fetchBackupStatus();
+    if (isSuperAdmin) {
+      fetchBackupStatus();
+      platformService.getSettings().then(r => setPricing(r.data.data)).catch(() => {});
+    }
   }, [isSuperAdmin]);
 
   const handleTestEmail = async () => {
@@ -45,6 +53,27 @@ export default function SettingsPage() {
     } catch (err) {
       toast.error(err.response?.data?.error || 'Failed to send test email — check SENDGRID_API_KEY in Railway');
     } finally { setSendingTest(false); }
+  };
+
+  const handleSavePricing = async () => {
+    if (Object.keys(pricingDirty).length === 0) { toast('No changes to save'); return; }
+    setSavingPricing(true);
+    try {
+      const res = await platformService.updateSettings(pricingDirty);
+      setPricing(res.data.data);
+      setPricingDirty({});
+      toast.success('Pricing rates updated!');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to update pricing');
+    } finally { setSavingPricing(false); }
+  };
+
+  const updatePricing = (key, value) => {
+    const num = parseInt(value.replace(/,/g, ''), 10);
+    if (!isNaN(num)) {
+      setPricing(prev => ({ ...prev, [key]: num }));
+      setPricingDirty(prev => ({ ...prev, [key]: num }));
+    }
   };
 
   const fetchBackupStatus = async () => {
@@ -133,6 +162,81 @@ export default function SettingsPage() {
               className="form-input" placeholder="Set in Railway environment variables" />
           </div>
         </Section>
+
+        {/* ── Subscription Pricing — Super Admin only */}
+        {isSuperAdmin && pricing && (
+          <div className="card p-4 mb-4">
+            <div className="text-xs font-bold text-gold uppercase tracking-wider mb-4 pb-2 border-b border-white/[0.08] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-3.5 h-3.5" />Subscription Pricing
+              </div>
+              <button
+                onClick={handleSavePricing}
+                disabled={savingPricing || Object.keys(pricingDirty).length === 0}
+                className="btn-primary text-[10px] py-1 px-3 disabled:opacity-40"
+              >
+                {savingPricing ? 'Saving…' : 'Save Rates'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3">
+              {[
+                { plan: 'STARTER', monthlyKey: 'starterMonthly', annualKey: 'starterAnnual', color: 'text-teal' },
+                { plan: 'GROWTH', monthlyKey: 'growthMonthly', annualKey: 'growthAnnual', color: 'text-gold' },
+                { plan: 'ENTERPRISE', monthlyKey: 'enterpriseMonthly', annualKey: 'enterpriseAnnual', color: 'text-anchor-green' },
+              ].map(({ plan, monthlyKey, annualKey, color }) => (
+                <div key={plan} className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                  <p className={`text-[11px] font-semibold ${color} mb-2`}>{plan}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="form-label">Monthly (₦)</label>
+                      <input
+                        value={(pricing[monthlyKey] || 0).toLocaleString()}
+                        onChange={e => updatePricing(monthlyKey, e.target.value)}
+                        className="form-input font-mono"
+                        placeholder="e.g. 95000"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label">Annual (₦) <span className="text-[var(--text3)]">— 10 months</span></label>
+                      <input
+                        value={(pricing[annualKey] || 0).toLocaleString()}
+                        onChange={e => updatePricing(annualKey, e.target.value)}
+                        className="form-input font-mono"
+                        placeholder="e.g. 950000"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="form-label">Annual discount %</label>
+                  <input
+                    value={pricing.annualDiscountPct || 16.7}
+                    onChange={e => setPricing(p => ({ ...p, annualDiscountPct: parseFloat(e.target.value) || 16.7 })
+                    || setPricingDirty(d => ({ ...d, annualDiscountPct: parseFloat(e.target.value) || 16.7 })))}
+                    type="number" step="0.1" min="0" max="50"
+                    className="form-input"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Free trial (days)</label>
+                  <input
+                    value={pricing.trialDays || 30}
+                    onChange={e => { const v = parseInt(e.target.value); setPricing(p => ({ ...p, trialDays: v })); setPricingDirty(d => ({ ...d, trialDays: v })); }}
+                    type="number" min="1" max="365"
+                    className="form-input"
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="text-[10px] text-[var(--text3)] mt-2">
+              Changes take effect immediately for new subscriptions. Existing subscribers keep their current rate until renewal.
+            </p>
+          </div>
+        )}
 
         {/* ── Email Test ── Super Admin only */}
         {isSuperAdmin && (

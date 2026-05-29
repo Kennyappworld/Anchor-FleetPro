@@ -141,3 +141,8 @@ export const adminService = {
   runBackup: () => api.post("/admin/backup/run"),
   testEmail: (to) => api.post("/admin/test-email", { to }),
 };
+
+export const platformService = {
+  getSettings: () => api.get('/platform/settings'),
+  updateSettings: (data) => api.patch('/platform/settings', data),
+};

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Lock, UserCheck, Zap, Wrench, AlertTriangle, X, Mail, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { Users, Plus, Lock, UserCheck, Zap, Wrench, AlertTriangle, X, Mail, RefreshCw, Eye, EyeOff, Car, Check, XCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { userService } from '../../services/api';
+import api from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
 const ROLES = [
@@ -24,6 +25,7 @@ const ROLE_COLORS = {
   FLEET_MANAGER: 'text-gold bg-gold/10',
   MAINTENANCE_SUPERVISOR: 'text-teal bg-teal/10',
   FIELD_AGENT: 'text-[var(--text3)] bg-white/[0.06]',
+  DRIVER: 'text-anchor-green bg-anchor-green/10',
 };
 
 export default function VendorTeamPage() {
@@ -35,13 +37,47 @@ export default function VendorTeamPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ fullName: '', email: '', role: 'FIELD_AGENT' });
   const [saving, setSaving] = useState(false);
-  const [createdUser, setCreatedUser] = useState(null); // shows temp password after creation
+  const [createdUser, setCreatedUser] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [resending, setResending] = useState(null);
 
-  const PLAN_LIMIT = 2; // GROWTH plan: Fleet Manager (owner) + 2 additional = 3 total, but owner counts as 1 so 2 more
+  // Driver signup requests
+  const [driverRequests, setDriverRequests] = useState([]);
+  const [approving, setApproving] = useState(null);
+  const [approvedDriver, setApprovedDriver] = useState(null);
+  const [resending, setResending] = useState(null);
 
-  useEffect(() => { fetchUsers(); }, []);
+  const PLAN_LIMIT = 2;
+
+  useEffect(() => { fetchUsers(); fetchDriverRequests(); }, []);
+
+  const fetchDriverRequests = async () => {
+    try {
+      const res = await api.get('/drivers/requests');
+      setDriverRequests(res.data.data || []);
+    } catch { /* silently fail */ }
+  };
+
+  const handleApproveDriver = async (id) => {
+    setApproving(id);
+    try {
+      const res = await api.post(`/drivers/requests/${id}/approve`);
+      setApprovedDriver(res.data);
+      setDriverRequests(prev => prev.filter(r => r.id !== id));
+      fetchUsers();
+      toast.success('Driver approved!');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to approve');
+    } finally { setApproving(null); }
+  };
+
+  const handleRejectDriver = async (id) => {
+    try {
+      await api.post(`/drivers/requests/${id}/reject`, { reason: 'Not approved by fleet manager' });
+      setDriverRequests(prev => prev.filter(r => r.id !== id));
+      toast.success('Request rejected');
+    } catch { toast.error('Failed to reject'); }
+  };
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -113,7 +149,71 @@ export default function VendorTeamPage() {
 
       <div className="p-5 space-y-4">
 
-        {/* Plan slot indicator */}
+        {/* Driver signup requests pending */}
+        {driverRequests.length > 0 && (
+          <div className="card p-4 border border-gold/30 bg-gold/5">
+            <div className="flex items-center gap-2 mb-3">
+              <Car className="w-4 h-4 text-gold" />
+              <h3 className="text-xs font-semibold text-gold">
+                {driverRequests.length} Pending Driver Request{driverRequests.length !== 1 ? 's' : ''}
+              </h3>
+            </div>
+            <div className="space-y-2">
+              {driverRequests.map(req => (
+                <div key={req.id} className="flex items-center gap-3 bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2.5">
+                  <div className="w-8 h-8 rounded-full bg-anchor-green/20 flex items-center justify-center text-xs font-bold text-anchor-green shrink-0">
+                    {req.fullName.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-[var(--text)]">{req.fullName}</p>
+                    <p className="text-[10px] text-[var(--text3)]">
+                      {req.phone} · Vehicle: <strong className="text-teal font-mono">{req.vehicleScan}</strong>
+                      · {new Date(req.createdAt).toDateString()}
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      onClick={() => handleApproveDriver(req.id)}
+                      disabled={approving === req.id}
+                      className="flex items-center gap-1 text-[10px] font-semibold text-anchor-green border border-anchor-green/30 px-2.5 py-1.5 rounded-lg hover:bg-anchor-green/10 disabled:opacity-50"
+                    >
+                      <Check className="w-3 h-3" />
+                      {approving === req.id ? '…' : 'Approve'}
+                    </button>
+                    <button
+                      onClick={() => handleRejectDriver(req.id)}
+                      className="flex items-center gap-1 text-[10px] font-semibold text-anchor-red border border-anchor-red/30 px-2.5 py-1.5 rounded-lg hover:bg-anchor-red/10"
+                    >
+                      <XCircle className="w-3 h-3" />
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Driver signup link */}
+        <div className="card p-3 flex items-center gap-3 border border-teal/20 bg-teal/5">
+          <Car className="w-4 h-4 text-teal shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold text-teal">Driver self-signup link</p>
+            <p className="text-[10px] text-[var(--text3)] mt-0.5">
+              Share this link with drivers — they scan their vehicle plate and request access. You approve here.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              const url = `${window.location.origin}/driver/signup`;
+              navigator.clipboard.writeText(url);
+              toast.success('Signup link copied!');
+            }}
+            className="btn-ghost text-[10px] py-1.5 shrink-0"
+          >
+            Copy Link
+          </button>
+        </div>
         <div className={`flex items-center gap-2.5 rounded-xl p-3 text-xs border
           ${atLimit
             ? 'bg-anchor-red/10 border-anchor-red/20 text-anchor-red'
@@ -209,6 +309,36 @@ export default function VendorTeamPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Approved Driver Credentials Modal ── */}
+      {approvedDriver && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="card w-full max-w-sm p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Check className="w-5 h-5 text-anchor-green" />
+              <h3 className="text-sm font-semibold text-[var(--text)]">Driver Approved!</h3>
+            </div>
+            <p className="text-[11px] text-[var(--text3)] mb-3">
+              Share these login details with the driver. {approvedDriver.data?.tempPassword && 'They will be asked to change the password on first login.'}
+            </p>
+            <div className="bg-white/[0.04] border border-white/[0.08] rounded-lg p-3 space-y-2 mb-4">
+              {[
+                ['Login URL', approvedDriver.data?.loginUrl || `${window.location.origin}/login`],
+                ['Username', approvedDriver.data?.email],
+                ['Temp Password', approvedDriver.data?.tempPassword],
+              ].filter(([,v]) => v).map(([label, value]) => (
+                <div key={label} className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] text-[var(--text3)] w-24 shrink-0">{label}</span>
+                  <span className="text-[10px] font-mono text-gold font-bold truncate">{value}</span>
+                  <button onClick={() => { navigator.clipboard.writeText(value); toast.success('Copied!'); }}
+                    className="text-[9px] text-teal shrink-0 hover:underline">Copy</button>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => setApprovedDriver(null)} className="w-full btn-primary justify-center py-2.5">Done</button>
+          </div>
+        </div>
+      )}
 
       {/* ── Add Member Modal ── */}
       {showAdd && (
