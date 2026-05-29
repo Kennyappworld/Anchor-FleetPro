@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Eye, EyeOff, HardDrive, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Clock } from 'lucide-react';
+import { Save, Eye, EyeOff, HardDrive, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Clock, Send, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
@@ -25,12 +25,27 @@ export default function SettingsPage() {
   const [backupRunning, setBackupRunning] = useState(false);
   const [lastBackupResult, setLastBackupResult] = useState(null);
 
+  // Email test state
+  const [testEmailAddr, setTestEmailAddr] = useState('');
+  const [sendingTest, setSendingTest] = useState(false);
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
   const save = () => toast.success('Settings saved — update actual values in Railway environment variables.');
 
   useEffect(() => {
     if (isSuperAdmin) fetchBackupStatus();
   }, [isSuperAdmin]);
+
+  const handleTestEmail = async () => {
+    if (!testEmailAddr.includes('@')) { toast.error('Enter a valid email address'); return; }
+    setSendingTest(true);
+    try {
+      await adminService.testEmail(testEmailAddr);
+      toast.success(`Test email sent to ${testEmailAddr}! Check your inbox.`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to send test email — check SENDGRID_API_KEY in Railway');
+    } finally { setSendingTest(false); }
+  };
 
   const fetchBackupStatus = async () => {
     setBackupLoading(true);
@@ -118,6 +133,36 @@ export default function SettingsPage() {
               className="form-input" placeholder="Set in Railway environment variables" />
           </div>
         </Section>
+
+        {/* ── Email Test ── Super Admin only */}
+        {isSuperAdmin && (
+          <div className="card p-4 mb-4">
+            <div className="text-xs font-bold text-gold uppercase tracking-wider mb-4 pb-2 border-b border-white/[0.08] flex items-center gap-2">
+              <Mail className="w-3.5 h-3.5" />Test Email Delivery
+            </div>
+            <p className="text-[11px] text-[var(--text3)] mb-3">
+              Send a test email to verify your SendGrid configuration is working correctly.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={testEmailAddr}
+                onChange={e => setTestEmailAddr(e.target.value)}
+                type="email"
+                placeholder="e.g. you@company.com"
+                className="form-input flex-1"
+                onKeyDown={e => e.key === 'Enter' && handleTestEmail()}
+              />
+              <button
+                onClick={handleTestEmail}
+                disabled={sendingTest || !testEmailAddr}
+                className="btn-primary px-4 disabled:opacity-50 shrink-0"
+              >
+                <Send className="w-3.5 h-3.5" />
+                {sendingTest ? 'Sending…' : 'Send Test'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Google Drive Backup — Super Admin only ── */}
         {isSuperAdmin && (
