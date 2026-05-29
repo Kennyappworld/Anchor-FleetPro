@@ -1,8 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const { logAction } = require('../services/auditService');
-const { sendEmail } = require('../services/emailService');
-const { generateInvoiceNumber } = require('../utils/generators');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 function tenantFilter(req) {
   const { role, vendorId, tenantId } = req.user;

@@ -1,9 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const { logAction } = require('../services/auditService');
-const { sendEmail } = require('../services/emailService');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 const GROWTH_USER_LIMIT = 2;
 

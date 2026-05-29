@@ -1,13 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
-const { sendEmail } = require('../services/emailService');
-const { logAction } = require('../services/auditService');
-const logger = require('../config/logger');
-const { activateSubscription } = require('../controllers/subscriptionController');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 const PLAN_DAYS = 30;
 

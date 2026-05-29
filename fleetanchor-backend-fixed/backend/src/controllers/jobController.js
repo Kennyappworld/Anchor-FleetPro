@@ -1,10 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const auditService = require('../services/auditService');
-const emailService = require('../services/emailService');
-const { generateJobNumber } = require('../utils/generators');
-const logger = require('../config/logger');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 // ─── CREATE JOB REQUEST ───────────────────────────────────────────────────────
 exports.create = async (req, res) => {

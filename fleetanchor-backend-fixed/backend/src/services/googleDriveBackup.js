@@ -13,12 +13,7 @@
  */
 
 const { google } = require('googleapis');
-const { PrismaClient } = require('@prisma/client');
-const { Readable } = require('stream');
-const logger = require('../config/logger');
-const { sendEmail } = require('./emailService');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 // ─── Authenticate with Google using a Service Account ───────────────────────
 function getGoogleAuth() {

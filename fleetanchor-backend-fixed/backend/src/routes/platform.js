@@ -2,10 +2,7 @@ const router = require('express').Router();
 const { body } = require('express-validator');
 const { validate } = require('../middleware/validate');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { PrismaClient } = require('@prisma/client');
-const { logAction } = require('../services/auditService');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 async function getSettings() {
   let s = await prisma.platformSettings.findUnique({ where: { id: 'singleton' } });

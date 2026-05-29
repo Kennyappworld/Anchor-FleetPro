@@ -10,14 +10,7 @@ const router = require('express').Router();
 const { body, param } = require('express-validator');
 const { validate } = require('../middleware/validate');
 const { authenticate, requireRole } = require('../middleware/auth');
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const { sendEmail } = require('../services/emailService');
-const { logAction } = require('../services/auditService');
-const logger = require('../config/logger');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 // ─── Public: Driver submits signup request ────────────────────────────────────
 // This is the unauthenticated endpoint — the driver app calls this without a token

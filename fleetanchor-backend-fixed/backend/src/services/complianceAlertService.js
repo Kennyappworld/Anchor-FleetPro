@@ -8,8 +8,7 @@
  * Thresholds: 30 days, 15 days, 7 days, day-of (0 days)
  */
 
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 const logger = require('../config/logger');
 const { sendEmail } = require('./emailService');
 

@@ -2,12 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { totp } = require('otplib');
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
-const emailService = require('../services/emailService');
-const auditService = require('../services/auditService');
-const logger = require('../config/logger');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 // ─── Token helpers ────────────────────────────────────────────────────────────
 const signAccess = (payload) =>

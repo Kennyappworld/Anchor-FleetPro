@@ -1,8 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const { logAction } = require('../services/auditService');
-const { sendEmail } = require('../services/emailService');
-const logger = require('../config/logger');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 const axios = require('axios');
 
 const PLAN_AMOUNTS = { GROWTH: 85000, ENTERPRISE: 250000 }; // in Naira

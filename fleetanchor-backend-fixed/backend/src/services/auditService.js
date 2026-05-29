@@ -1,8 +1,5 @@
 const crypto = require('crypto');
-const { PrismaClient } = require('@prisma/client');
-const logger = require('../config/logger');
-
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 // ─── Hash-chained audit log ───────────────────────────────────────────────────
 // Each record contains the SHA-256 hash of the previous record,

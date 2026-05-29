@@ -1,8 +1,6 @@
 const router = require('express').Router();
 const { authenticate, requireRole } = require('../middleware/auth');
-const { PrismaClient } = require('@prisma/client');
-const { logAction } = require('../services/auditService');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 router.use(authenticate, requireRole(['SUPER_ADMIN']));
 

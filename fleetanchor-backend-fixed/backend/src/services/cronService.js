@@ -138,7 +138,7 @@ function startCronJobs() {
     const purge = new cron("0 3 * * *", async () => {
       try {
         const { PrismaClient } = require("@prisma/client");
-        const prisma = new PrismaClient();
+        const prisma = require('./config/prisma');
         const now = new Date();
 
         const expired = await prisma.vendor.findMany({
@@ -181,8 +181,7 @@ function stopCronJobs() {
 module.exports = { startCronJobs, stopCronJobs };
 // exported so it can be called manually in tests
 async function checkServiceAlerts() {
-  const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
+    const prisma = require('./config/prisma');
   const { sendEmail } = require('./emailService');
   const now = new Date();
   const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);

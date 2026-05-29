@@ -1,6 +1,4 @@
-const { PrismaClient } = require('@prisma/client');
-const { logAction } = require('../services/auditService');
-const prisma = new PrismaClient();
+const prisma = require('../config/prisma');
 
 // Determine vendor filter based on role
 function tenantFilter(req) {
