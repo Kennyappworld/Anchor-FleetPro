@@ -173,19 +173,23 @@ export default function VendorCompliancePage() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const wb = XLSX.read(ev.target.result, { type: 'binary' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
-      const headers = rows[0] || [];
-      const dataRows = rows.slice(1).filter(r => r.some(c => c));
+      // Prefer 'Document Compliance' sheet, then first sheet
+      const sheetName = wb.SheetNames.find(n => /compliance|document/i.test(n)) || wb.SheetNames[0];
+      const sheet = wb.Sheets[sheetName];
+      const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      // Find real header row (contains 'Plate Number' or 'Plate')
+      let hIdx = raw.findIndex(r => r.some(c => /plate/i.test(String(c))));
+      if (hIdx === -1) hIdx = 0;
+      const dataRows = raw.slice(hIdx + 1).filter(r => r.some(c => String(c).trim()));
       const parsed = dataRows.map(row => ({
-        plateNumber: row[0] || '',
-        vin: row[1] || '',
-        docType: (row[2] || '').toString().toUpperCase().replace(/\s+/g, '_'),
-        docNumber: row[3] || '',
-        issuedDate: row[4] ? String(row[4]) : '',
-        expiryDate: row[5] ? String(row[5]) : '',
-        notes: row[6] || '',
-      }));
+        plateNumber: String(row[0] || '').trim(),
+        vin: String(row[1] || '').trim(),
+        docType: String(row[2] || '').trim().toUpperCase().replace(/\s+/g, '_'),
+        docNumber: String(row[3] || '').trim(),
+        issuedDate: row[4] ? String(row[4]).trim() : '',
+        expiryDate: row[5] ? String(row[5]).trim() : '',
+        notes: String(row[6] || '').trim(),
+      })).filter(r => r.plateNumber || r.vin);
       setImportRows(parsed);
       setShowImport(true);
       setImportResult(null);

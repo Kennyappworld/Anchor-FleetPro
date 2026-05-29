@@ -139,18 +139,24 @@ export default function VendorDriversPage() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       const wb = XLSX.read(ev.target.result, { type: 'binary' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }).slice(1).filter(r => r.some(c => c));
-      const parsed = rows.map(r => ({
-        driverName: r[0] || '',
-        phone: r[1] || '',
-        email: r[2] || '',
-        licenceNumber: r[3] || '',
-        licenceCategory: r[4] || '',
-        issuedDate: r[5] ? String(r[5]) : '',
-        expiryDate: r[6] ? String(r[6]) : '',
-        notes: r[7] || '',
-      }));
+      // Prefer 'Driver Licences' sheet, then first sheet
+      const sheetName = wb.SheetNames.find(n => /driver/i.test(n)) || wb.SheetNames[0];
+      const sheet = wb.Sheets[sheetName];
+      const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      // Find real header row (contains 'Driver' or 'Name')
+      let hIdx = raw.findIndex(r => r.some(c => /driver.?name|^name$/i.test(String(c))));
+      if (hIdx === -1) hIdx = 0;
+      const dataRows = raw.slice(hIdx + 1).filter(r => r.some(c => String(c).trim()));
+      const parsed = dataRows.map(r => ({
+        driverName: String(r[0] || '').trim(),
+        phone: String(r[1] || '').trim(),
+        email: String(r[2] || '').trim(),
+        licenceNumber: String(r[3] || '').trim(),
+        licenceCategory: String(r[4] || '').trim(),
+        issuedDate: r[5] ? String(r[5]).trim() : '',
+        expiryDate: r[6] ? String(r[6]).trim() : '',
+        notes: String(r[7] || '').trim(),
+      })).filter(r => r.driverName);
       setImportRows(parsed);
       setShowImport(true);
       setImportResult(null);

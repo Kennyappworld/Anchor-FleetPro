@@ -104,13 +104,41 @@ export default function VendorVehiclesPage() {
     reader.onload = (ev) => {
       try {
         const wb = XLSX.read(ev.target.result, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
-        if (!rows.length) { toast.error('No data found in sheet'); return; }
-        setImportRows(rows);
+        // Try 'Vehicles' sheet first, then first sheet
+        const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('vehicle')) || wb.SheetNames[0];
+        const ws = wb.Sheets[sheetName];
+
+        // Read as raw array-of-arrays to find the real header row (contains 'VIN')
+        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        let headerRowIdx = raw.findIndex(row =>
+          row.some(cell => String(cell).trim().toUpperCase() === 'VIN')
+        );
+        if (headerRowIdx === -1) headerRowIdx = 0; // fallback
+
+        // Re-parse from the real header row
+        const rows = XLSX.utils.sheet_to_json(ws, {
+          header: 1,
+          defval: '',
+          range: headerRowIdx,
+        });
+        if (rows.length < 2) { toast.error('No data rows found in sheet'); return; }
+
+        // rows[0] = headers, rows[1..] = data
+        const headers = rows[0].map(h => String(h).trim());
+        const dataRows = rows.slice(1).filter(r => r.some(c => String(c).trim()));
+
+        // Map to objects using the actual header names
+        const mapped = dataRows.map(row => {
+          const obj = {};
+          headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? String(row[i]).trim() : ''; });
+          return obj;
+        });
+
+        if (!mapped.length) { toast.error('No data rows found in sheet'); return; }
+        setImportRows(mapped);
         setImportResult(null);
         setShowImport(true);
-      } catch {
+      } catch (err) {
         toast.error('Could not read file. Use .xlsx or .xls format');
       }
     };
