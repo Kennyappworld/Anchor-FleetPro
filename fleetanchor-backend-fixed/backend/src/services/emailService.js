@@ -82,13 +82,14 @@ const send = async ({ to, subject, html }) => {
     logger.warn(`Email skipped (no provider): ${subject} → ${to}`);
     return false;
   }
+  const from = getFrom();
+  logger.info(`Email attempting: "${subject}" → ${to} | from: ${from} | key starts: ${(process.env.SENDGRID_API_KEY||'').slice(0,10)}...`);
   try {
-    const info = await transporter.sendMail({ from: getFrom(), to, subject, html });
+    const info = await transporter.sendMail({ from, to, subject, html });
     logger.info(`Email sent OK: ${subject} → ${to} [${info.messageId || 'no-id'}]`);
     return true;
   } catch (err) {
-    logger.error(`Email FAILED: ${subject} → ${to}: ${err.message}`);
-    // Reset transporter so next attempt rebuilds it fresh
+    logger.error(`Email FAILED: ${subject} → ${to} | Error: ${err.message} | Code: ${err.code} | Response: ${err.response || ''}`);
     _transporter = null;
     return false;
   }

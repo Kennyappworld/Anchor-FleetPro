@@ -125,7 +125,17 @@ router.post('/test-email', async (req, res) => {
     if (sent) {
       res.json({ success: true, message: `Test email sent to ${to}` });
     } else {
-      res.status(500).json({ success: false, error: 'Email failed to send — check SENDGRID_API_KEY and SENDGRID_FROM_EMAIL in Railway variables' });
+      const hasKey = !!process.env.SENDGRID_API_KEY;
+      const hasFrom = !!process.env.SENDGRID_FROM_EMAIL;
+      res.status(500).json({
+        success: false,
+        error: 'Email failed to send — check Railway Deploy Logs for the exact error',
+        debug: {
+          SENDGRID_API_KEY: hasKey ? `set (starts: ${process.env.SENDGRID_API_KEY.slice(0,8)}...)` : 'NOT SET',
+          SENDGRID_FROM_EMAIL: hasFrom ? process.env.SENDGRID_FROM_EMAIL : 'NOT SET',
+          hint: !hasKey ? 'Add SENDGRID_API_KEY to Railway variables' : !hasFrom ? 'Add SENDGRID_FROM_EMAIL to Railway variables' : 'Key and From are set — check SendGrid sender verification at app.sendgrid.com/settings/sender_auth',
+        },
+      });
     }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
