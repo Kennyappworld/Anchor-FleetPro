@@ -111,10 +111,29 @@ exports.refreshToken = async (req, res) => {
     const { refreshToken } = req.body;
     if (!refreshToken) return res.status(401).json({ success: false, error: 'Refresh token required' });
 
-    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
-    const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+    let decoded;
+    try {
+      decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+    } catch (err) {
+      return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
+    }
 
-    if (!user || !user.active) return res.status(401).json({ success: false, error: 'Invalid token' });
+    // Verify user still exists and is active
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { id: true, email: true, role: true, vendorId: true, oemId: true, active: true, lastPasswordChange: true },
+    });
+    if (!user || !user.active) {
+      return res.status(401).json({ success: false, error: 'Account not found or deactivated' });
+    }
+
+    // If password changed after token was issued, invalidate token
+    if (user.lastPasswordChange && decoded.iat) {
+      const tokenIssuedAt = decoded.iat * 1000;
+      if (user.lastPasswordChange.getTime() > tokenIssuedAt) {
+        return res.status(401).json({ success: false, error: 'Session invalidated. Please log in again.', code: 'TOKEN_INVALIDATED' });
+      }
+    }
 
     const tokenPayload = { userId: user.id, email: user.email, role: user.role, vendorId: user.vendorId, oemId: user.oemId };
     const accessToken = signAccess(tokenPayload);
@@ -250,6 +269,7 @@ exports.resetPassword = async (req, res) => {
         resetExpires: null,
         resetAttempts: 0,
         lastResetAt: new Date(),
+        lastPasswordChange: new Date(),  // invalidates all existing refresh tokens
       },
     });
 
@@ -427,7 +447,7 @@ exports.acceptVendorInvite = async (req, res) => {
 exports.changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await prisma.user.findUnique({ where: { id: req.user.userId || req.user.id } });
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
 
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
@@ -436,9 +456,10 @@ exports.changePassword = async (req, res) => {
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash, mustChangePassword: false },
+      data: { passwordHash, mustChangePassword: false, lastPasswordChange: new Date() },
     });
-    res.json({ success: true, message: 'Password changed successfully' });
+    await auditService.log({ userId: user.id, action: 'PASSWORD_CHANGED', entityType: 'user', entityId: user.id, ipAddress: req.ip, actorLabel: user.email });
+    res.json({ success: true, message: 'Password changed successfully. All previous sessions have been invalidated.' });
   } catch (err) {
     logger.error('changePassword error:', err);
     res.status(500).json({ success: false, error: 'Server error' });

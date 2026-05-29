@@ -107,6 +107,7 @@ model User {
   deletedAt       DateTime?
   lastLoginAt     DateTime?
   lastLoginIp     String?
+  lastPasswordChange DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   jobRequests     JobRequest[]

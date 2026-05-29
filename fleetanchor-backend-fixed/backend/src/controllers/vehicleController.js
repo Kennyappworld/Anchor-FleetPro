@@ -128,6 +128,13 @@ exports.update = async (req, res, next) => {
 
 exports.remove = async (req, res, next) => {
   try {
+    const where = { id: req.params.id };
+    // Ownership check: non-admins can only delete their own vendor's vehicles
+    if (!['SUPER_ADMIN', 'OEM_ADMIN'].includes(req.user.role)) {
+      where.vendorId = req.user.vendorId;
+    }
+    const vehicle = await prisma.vehicle.findFirst({ where });
+    if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found or access denied' });
     await prisma.vehicle.delete({ where: { id: req.params.id } });
     await logAction(req, 'VEHICLE_DELETED', 'Vehicle', req.params.id);
     res.json({ success: true, message: 'Vehicle removed' });

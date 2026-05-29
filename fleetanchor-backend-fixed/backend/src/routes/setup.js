@@ -4,9 +4,15 @@ const { execSync } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
 
 // One-time setup endpoint - creates all tables and super admin
+// SECURITY: Disabled after first run. Requires SETUP_SECRET env var (not hardcoded).
 router.post("/run", async (req, res) => {
+  // Block entirely in production unless SETUP_ENABLED=true is explicitly set
+  if (process.env.NODE_ENV === "production" && process.env.SETUP_ENABLED !== "true") {
+    return res.status(404).json({ error: "Not found" });
+  }
   const { secret } = req.body;
-  if (secret !== "fleetanchor-setup-2026") {
+  const expectedSecret = process.env.SETUP_SECRET;
+  if (!expectedSecret || secret !== expectedSecret) {
     return res.status(403).json({ error: "Invalid secret" });
   }
 
@@ -85,7 +91,9 @@ router.post("/run", async (req, res) => {
 
 // GET version for easy browser testing
 router.get("/status", (req, res) => {
-  res.json({ message: "Setup route is active. POST to /api/setup/run with secret." });
+  // In production, reveal nothing about this endpoint
+  if (process.env.NODE_ENV === "production") return res.status(404).json({ error: "Not found" });
+  res.json({ message: "Setup route active (dev only)." });
 });
 
 module.exports = router;

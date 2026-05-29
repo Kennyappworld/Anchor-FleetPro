@@ -6,6 +6,8 @@ const { execSync } = require("child_process");
 
 const logger = require("./config/logger");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
 
 const authRoutes = require("./routes/auth");
 const userRoutes = require("./routes/users");
@@ -21,6 +23,7 @@ const webhookRoutes = require("./routes/webhooks");
 const adminRoutes = require("./routes/admin");
 
 const app = express();
+app.disable("x-powered-by"); // hide Express fingerprint
 const PORT = process.env.PORT || 5000;
 
 // ── Sync DB on startup ────────────────────────────────────────────────────────
@@ -32,6 +35,24 @@ try {
   console.error("DB push error (continuing):", err.message);
 }
 
+// ── Security headers (helmet) ────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: false, // API only — no HTML served
+  crossOriginEmbedderPolicy: false,
+}));
+app.set("trust proxy", 1); // trust Railway/Vercel reverse proxy for real IP
+
+// ── Global API rate limiter — 200 req/15min per IP ───────────────────────────
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: "Too many requests. Please slow down." },
+  skip: (req) => req.path === "/health", // never throttle health checks
+});
+app.use("/api/", globalLimiter);
+
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
@@ -42,8 +63,10 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
-    cb(null, true); // allow all for now — tighten in production
+    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS: origin ${origin} not allowed`));
   },
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization","X-Device-Fingerprint"],
@@ -54,8 +77,8 @@ app.options("*", cors());
 // ── Body parsing ──────────────────────────────────────────────────────────────
 // Paystack webhook needs raw body BEFORE express.json()
 app.use("/api/webhooks/paystack", express.raw({ type: "application/json" }));
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
 // ── Compression — gzip all responses ─────────────────────────────────────────
 app.use(compression({ level: 6, threshold: 1024 }));
@@ -65,7 +88,8 @@ app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-  // Keep connections alive to avoid repeated TCP handshakes
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("Keep-Alive", "timeout=30, max=100");
   next();
@@ -108,7 +132,13 @@ app.locals.clearCache = clearCache;
 // ── Health check (no auth, no logging) ───────────────────────────────────────
 app.get("/health", (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
-  res.status(200).json({ status: "ok", service: "FleetAnchor Pro API", version: "schema-sync-v2", timestamp: new Date().toISOString() });
+  const isProd = process.env.NODE_ENV === "production";
+  res.status(200).json({
+    status: "ok",
+    service: "FleetAnchor Pro API",
+    ...(isProd ? {} : { version: "schema-sync-v2" }),
+    timestamp: new Date().toISOString(),
+  });
 });
 app.get("/", (req, res) => {
   res.json({ service: "FleetAnchor Pro API", status: "running" });
