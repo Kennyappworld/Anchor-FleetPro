@@ -23,7 +23,7 @@ const adminRoutes = require("./routes/admin");
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Sync DB on startup
+// ── Sync DB on startup ────────────────────────────────────────────────────────
 try {
   console.log("Running prisma db push...");
   execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", timeout: 60000 });
@@ -32,33 +32,89 @@ try {
   console.error("DB push error (continuing):", err.message);
 }
 
-// CORS - allow all origins
+// ── CORS ──────────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  "https://anchor-fleet-pro.vercel.app",
+  "http://localhost:3000",
+  "http://localhost:5173",
+].filter(Boolean);
+
 app.use(cors({
-  origin: "*",
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(null, true); // allow all for now — tighten in production
+  },
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization","X-Device-Fingerprint"],
   credentials: false,
 }));
-
 app.options("*", cors());
 
-// Paystack webhook needs raw body
+// ── Body parsing ──────────────────────────────────────────────────────────────
+// Paystack webhook needs raw body BEFORE express.json()
 app.use("/api/webhooks/paystack", express.raw({ type: "application/json" }));
-
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(compression());
 
-// Health check
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "ok", service: "FleetAnchor Pro API", timestamp: new Date().toISOString() });
+// ── Compression — gzip all responses ─────────────────────────────────────────
+app.use(compression({ level: 6, threshold: 1024 }));
+
+// ── Security & performance headers ───────────────────────────────────────────
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  // Keep connections alive to avoid repeated TCP handshakes
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Keep-Alive", "timeout=30, max=100");
+  next();
 });
 
+// ── Simple in-memory cache for heavy read endpoints (60s TTL) ────────────────
+const cache = new Map();
+const CACHE_TTL = 60 * 1000; // 60 seconds
+
+function withCache(key, ttl = CACHE_TTL) {
+  return (req, res, next) => {
+    // Only cache GET requests for authenticated users
+    if (req.method !== "GET") return next();
+    const cacheKey = `${key}:${req.user?.id || "anon"}:${req.url}`;
+    const cached = cache.get(cacheKey);
+    if (cached && Date.now() - cached.time < ttl) {
+      return res.json(cached.data);
+    }
+    const originalJson = res.json.bind(res);
+    res.json = (data) => {
+      if (res.statusCode === 200) {
+        cache.set(cacheKey, { data, time: Date.now() });
+        // Auto-expire
+        setTimeout(() => cache.delete(cacheKey), ttl);
+      }
+      return originalJson(data);
+    };
+    next();
+  };
+}
+
+// Clear cache on mutations
+function clearCache(pattern) {
+  for (const key of cache.keys()) {
+    if (key.startsWith(pattern)) cache.delete(key);
+  }
+}
+app.locals.clearCache = clearCache;
+
+// ── Health check (no auth, no logging) ───────────────────────────────────────
+app.get("/health", (req, res) => {
+  res.setHeader("Cache-Control", "no-cache");
+  res.status(200).json({ status: "ok", service: "FleetAnchor Pro API", timestamp: new Date().toISOString() });
+});
 app.get("/", (req, res) => {
   res.json({ service: "FleetAnchor Pro API", status: "running" });
 });
 
-// Routes
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vendors", vendorRoutes);
@@ -76,6 +132,7 @@ app.use("/api/setup", require("./routes/setup"));
 app.use(notFoundHandler);
 app.use(errorHandler);
 
+// ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`FleetAnchor Pro API running on port ${PORT}`);
   try {

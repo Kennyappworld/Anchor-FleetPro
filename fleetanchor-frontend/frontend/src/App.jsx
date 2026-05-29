@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from './context/authStore';
+import { PageLoader } from './components/shared/Skeleton';
 
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
@@ -78,7 +79,7 @@ export default function App() {
           error:   { iconTheme: { primary:'#E84B4B', secondary:'#0F2040' } },
         }}
       />
-      <Suspense fallback={<LoadingFallback />}>
+      <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />

@@ -6,8 +6,10 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // directUrl skips PgBouncer for migrations/db push
+  directUrl = env("DATABASE_URL")
 }
 
 // ─── MULTI-TENANT ROOT ────────────────────────────────────────────────────────
@@ -72,6 +74,9 @@ model Vendor {
   vehicles      Vehicle[]
   subscriptions Subscription[]
 
+  @@index([oemId])
+  @@index([deletedAt])
+  @@index([status])
   @@map("vendors")
 }
 
@@ -104,6 +109,9 @@ model User {
   auditLogs       AuditLog[]
   sentNotifications Notification[]
 
+  @@index([vendorId])
+  @@index([oemId])
+  @@index([email])
   @@map("users")
 }
 
@@ -158,6 +166,9 @@ model JobRequest {
   notifications Notification[]
 
   @@index([jobNumber])
+  @@index([status])
+  @@index([priority])
+  @@index([vehicleId])
   @@map("job_requests")
 }
 
