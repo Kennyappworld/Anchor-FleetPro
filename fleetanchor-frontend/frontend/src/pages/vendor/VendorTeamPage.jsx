@@ -45,7 +45,6 @@ export default function VendorTeamPage() {
   const [driverRequests, setDriverRequests] = useState([]);
   const [approving, setApproving] = useState(null);
   const [approvedDriver, setApprovedDriver] = useState(null);
-  const [resending, setResending] = useState(null);
 
   const PLAN_LIMIT = 2;
 
