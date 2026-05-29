@@ -7,7 +7,7 @@ const prisma = new PrismaClient();
 function tenantFilter(req) {
   const { role, vendorId, tenantId } = req.user;
   if (role === 'SUPER_ADMIN') return {};
-  if (role === 'OEM_ADMIN' || role === 'WORKSHOP_STAFF') return { jobRequest: { vehicle: { vendor: { oemCompany: { tenantId } } } } };
+  if (role === 'OEM_ADMIN' || role === 'WORKSHOP_STAFF') return { jobRequest: { vehicle: { vendor: { oem: { tenantId } } } } };
   return { jobRequest: { vehicle: { vendorId } } };
 }
 

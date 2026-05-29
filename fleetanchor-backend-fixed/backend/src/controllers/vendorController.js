@@ -19,8 +19,8 @@ exports.list = async (req, res, next) => {
       prisma.vendor.findMany({
         where, skip: (page - 1) * limit, take: +limit,
         include: {
-          oemCompany: { select: { name: true } },
-          subscriptions: { where: { status: 'ACTIVE' }, orderBy: { createdAt: 'desc' }, take: 1 },
+          oem: { select: { name: true } },
+          subscriptions: { where: { status: { in: ['ACTIVE','TRIAL'] } }, orderBy: { createdAt: 'desc' }, take: 1 },
           _count: { select: { vehicles: true, users: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -36,7 +36,7 @@ exports.getOne = async (req, res, next) => {
     const vendor = await prisma.vendor.findFirst({
       where: { id: req.params.id, ...tenantFilter(req) },
       include: {
-        oemCompany: true,
+        oem: { select: { name: true } },
         users: { select: { id: true, fullName: true, email: true, role: true, active: true } },
         subscriptions: { orderBy: { createdAt: 'desc' }, take: 1 },
         _count: { select: { vehicles: true } },

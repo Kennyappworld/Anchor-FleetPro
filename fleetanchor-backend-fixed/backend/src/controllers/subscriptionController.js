@@ -26,7 +26,7 @@ exports.list = async (req, res, next) => {
   try {
     const { role, tenantId } = req.user;
     const where = role === 'SUPER_ADMIN' ? {}
-      : { vendor: { oemCompany: { tenantId } } };
+      : { vendor: { oem: { tenantId } } };
     const subs = await prisma.subscription.findMany({
       where,
       include: { vendor: { select: { companyName: true } } },

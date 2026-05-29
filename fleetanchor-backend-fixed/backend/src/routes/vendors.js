@@ -13,8 +13,8 @@ router.get('/:id/stats', param('id').isUUID(), validate, vc.stats);
 router.post('/',
   requireRole(['SUPER_ADMIN','OEM_ADMIN']),
   body('companyName').trim().notEmpty(),
-  body('contactEmail').optional().isEmail().normalizeEmail(),
-  body('email').optional().isEmail().normalizeEmail(),
+  body('contactEmail').optional().isEmail(),
+  body('email').optional().isEmail(),
   body('oemId').optional().isUUID(),
   validate,
   vc.create
