@@ -29,6 +29,24 @@ function startCronJobs() {
   }
 
   try {
+    // Daily driver licence alert - 9:00 AM WAT
+    const driverAlert = new cron('0 9 * * *', async () => {
+      try {
+        logger.info('Running driver licence alert check...');
+        const { checkDriverLicenceAlerts } = require('./complianceAlertService');
+        const result = await checkDriverLicenceAlerts();
+        logger.info(`[DRIVER LICENCE ALERT] Complete -- ${result.sent} vendor batches sent`);
+      } catch (err) {
+        logger.error('Driver licence alert check failed:', err.message);
+      }
+    }, null, true, 'Africa/Lagos');
+    jobs.push(driverAlert);
+    logger.info('Driver licence alert cron scheduled (daily 9 AM WAT)');
+  } catch (err) {
+    logger.warn('Failed to start driver licence alert cron:', err.message);
+  }
+
+  try {
     // Daily document compliance alert - 8:30 AM WAT
     const complianceAlert = new cron('30 8 * * *', async () => {
       try {

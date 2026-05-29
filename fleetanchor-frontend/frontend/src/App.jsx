@@ -35,6 +35,7 @@ const VendorTeamPage = lazy(() => import('./pages/vendor/VendorTeamPage'));
 const VendorSubscriptionPage = lazy(() => import('./pages/vendor/VendorSubscriptionPage'));
 const TeamChatPage = lazy(() => import('./pages/vendor/TeamChatPage'));
 const VendorCompliancePage = lazy(() => import('./pages/vendor/VendorCompliancePage'));
+const VendorDriversPage = lazy(() => import('./pages/vendor/VendorDriversPage'));
 
 const RequireAuth = ({ children }) => {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -116,6 +117,7 @@ export default function App() {
             <Route path="subscription" element={<VendorSubscriptionPage />} />
             <Route path="chat" element={<TeamChatPage />} />
             <Route path="compliance" element={<VendorCompliancePage />} />
+            <Route path="drivers" element={<VendorDriversPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

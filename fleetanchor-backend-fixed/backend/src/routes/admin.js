@@ -204,4 +204,15 @@ router.post('/service-alerts/trigger', async (req, res) => {
   }
 });
 
+// POST /api/admin/driver-licences/trigger — manually trigger driver licence alerts
+router.post('/driver-licences/trigger', async (req, res) => {
+  try {
+    const { checkDriverLicenceAlerts } = require('../services/complianceAlertService');
+    const result = await checkDriverLicenceAlerts();
+    res.json({ success: true, data: result, message: `Driver licence alerts triggered -- ${result.sent} vendor batches sent` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;

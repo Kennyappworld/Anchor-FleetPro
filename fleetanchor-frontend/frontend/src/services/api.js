@@ -111,6 +111,7 @@ export const analyticsService = {
   getDashboard: () => api.get("/analytics/dashboard"),
   getMonthlyRevenue: () => api.get("/analytics/monthly-revenue"),
   getTopVehicles: () => api.get("/analytics/top-vehicles"),
+  getVendorDashboard: () => api.get("/analytics/vendor-dashboard"),
 };
 
 export const auditService = {
@@ -157,4 +158,13 @@ export const complianceService = {
   bulkImport: (rows) => api.post('/compliance/bulk-import', { rows }),
   update: (id, data) => api.patch(`/compliance/${id}`, data),
   remove: (id) => api.delete(`/compliance/${id}`),
+};
+
+export const driverLicenceService = {
+  list: () => api.get('/driver-licences'),
+  summary: () => api.get('/driver-licences/summary'),
+  add: (data) => api.post('/driver-licences', data),
+  bulkImport: (rows) => api.post('/driver-licences/bulk-import', { rows }),
+  update: (id, data) => api.patch(`/driver-licences/${id}`, data),
+  remove: (id) => api.delete(`/driver-licences/${id}`),
 };

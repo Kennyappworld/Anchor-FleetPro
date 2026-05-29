@@ -78,4 +78,85 @@ router.get('/top-vehicles', requireRole(['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STA
   } catch (err) { next(err); }
 });
 
+// GET /api/analytics/vendor-dashboard — rich stats for vendor dashboard
+router.get('/vendor-dashboard', async (req, res, next) => {
+  try {
+    const vendorId = req.user.vendorId;
+    if (!vendorId) return res.status(403).json({ success: false, error: 'Vendor only' });
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+    const [
+      totalVehicles, inRepair, activeJobs, completedThisMonth,
+      totalSpendRaw, thisMonthSpendRaw, lastMonthSpendRaw,
+      jobsByStatus, jobsByCategory, recentJobs,
+      expiringDocs, expiredDocs,
+      expiringLicences, expiredLicences,
+      vehiclesDueService,
+    ] = await Promise.all([
+      prisma.vehicle.count({ where: { vendorId, status: { not: 'DECOMMISSIONED' } } }),
+      prisma.vehicle.count({ where: { vendorId, status: 'IN_REPAIR' } }),
+      prisma.jobRequest.count({ where: { vehicle: { vendorId }, status: { in: ['SUBMITTED','DIAGNOSED','ESTIMATE_SENT','ESTIMATE_APPROVED','REPAIR_STARTED'] } } }),
+      prisma.jobRequest.count({ where: { vehicle: { vendorId }, status: 'REPAIR_COMPLETE', completedAt: { gte: monthStart } } }),
+      prisma.invoice.aggregate({ where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true }, _sum: { totalAmount: true } }),
+      prisma.invoice.aggregate({ where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: monthStart } }, _sum: { totalAmount: true } }),
+      prisma.invoice.aggregate({ where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: lastMonthStart, lte: lastMonthEnd } }, _sum: { totalAmount: true } }),
+      prisma.jobRequest.groupBy({ by: ['status'], _count: true, where: { vehicle: { vendorId } } }),
+      prisma.jobRequest.groupBy({ by: ['category'], _count: true, where: { vehicle: { vendorId } }, orderBy: { _count: { category: 'desc' } }, take: 5 }),
+      prisma.jobRequest.findMany({ where: { vehicle: { vendorId } }, include: { vehicle: { select: { plateNumber: true, make: true, model: true } } }, orderBy: { createdAt: 'desc' }, take: 5 }),
+      prisma.vehicleDocument.count({ where: { vendorId, expiryDate: { gte: now, lte: in30 } } }),
+      prisma.vehicleDocument.count({ where: { vendorId, expiryDate: { lt: now } } }),
+      prisma.driverLicence.count({ where: { vendorId, expiryDate: { gte: now, lte: in30 } } }),
+      prisma.driverLicence.count({ where: { vendorId, expiryDate: { lt: now } } }),
+      prisma.vehicle.count({ where: { vendorId, status: 'ACTIVE', nextServiceDate: { lte: in30 }, serviceAlertSent: false } }),
+    ]);
+
+    // 6-month cost trend
+    const costTrend = [];
+    for (let i = 5; i >= 0; i--) {
+      const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+      const agg = await prisma.invoice.aggregate({
+        where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: mStart, lte: mEnd } },
+        _sum: { totalAmount: true },
+      });
+      costTrend.push({
+        month: mStart.toLocaleString('en', { month: 'short' }) + ' ' + mStart.getFullYear().toString().slice(2),
+        amount: agg._sum.totalAmount || 0,
+      });
+    }
+
+    const thisMonth = thisMonthSpendRaw._sum.totalAmount || 0;
+    const lastMonth = lastMonthSpendRaw._sum.totalAmount || 0;
+    const spendChange = lastMonth > 0 ? Math.round(((thisMonth - lastMonth) / lastMonth) * 100) : 0;
+
+    res.json({
+      success: true,
+      data: {
+        fleet: { total: totalVehicles, inRepair, available: totalVehicles - inRepair },
+        jobs: { active: activeJobs, completedThisMonth, byStatus: jobsByStatus, byCategory: jobsByCategory },
+        spend: {
+          total: totalSpendRaw._sum.totalAmount || 0,
+          thisMonth,
+          lastMonth,
+          spendChange,
+          trend: costTrend,
+        },
+        compliance: {
+          expiringDocs, expiredDocs,
+          expiringLicences, expiredLicences,
+          vehiclesDueService,
+          totalAlerts: expiringDocs + expiredDocs + expiringLicences + expiredLicences + vehiclesDueService,
+        },
+        recentJobs,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

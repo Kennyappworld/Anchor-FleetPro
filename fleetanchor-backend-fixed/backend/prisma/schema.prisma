@@ -75,6 +75,7 @@ model Vendor {
   vehicles      Vehicle[]
   subscriptions Subscription[]
   documents     VehicleDocument[]
+  driverLicences DriverLicence[]
   driverSignupRequests DriverSignupRequest[]
 
   @@index([oemId])
@@ -452,4 +453,29 @@ enum DocType {
   VEHICLE_REGISTRATION
   CUSTOMS_PAPER
   OTHER
+}
+
+// ─── DRIVER LICENCES ──────────────────────────────────────────────────────────
+model DriverLicence {
+  id              String    @id @default(uuid())
+  vendorId        String
+  vendor          Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  driverName      String
+  phone           String?
+  email           String?
+  licenceNumber   String?
+  licenceCategory String    // e.g. B, C, D, E, A, EC
+  issuedDate      DateTime?
+  expiryDate      DateTime
+  notes           String?
+  alertSent30     Boolean   @default(false)
+  alertSent15     Boolean   @default(false)
+  alertSent7      Boolean   @default(false)
+  alertSentDay    Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([vendorId])
+  @@index([expiryDate])
+  @@map("driver_licences")
 }

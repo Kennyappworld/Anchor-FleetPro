@@ -387,4 +387,126 @@ async function checkServiceAlertsBatched() {
   return { alerted };
 }
 
-module.exports = { checkComplianceAlerts, checkServiceAlertsBatched };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRIVER LICENCE ALERTS (batched, same pattern as compliance)
+// ─────────────────────────────────────────────────────────────────────────────
+async function checkDriverLicenceAlerts() {
+  const now = new Date();
+  let totalSent = 0;
+
+  for (const threshold of THRESHOLDS) {
+    const { days, field, label, color } = threshold;
+    const windowEnd = new Date(now.getTime() + days * 24 * 60 * 60 * 1000 + 12 * 60 * 60 * 1000);
+    const windowStart = days === 0 ? new Date(now.getTime() - 12 * 60 * 60 * 1000) : now;
+
+    const licences = await prisma.driverLicence.findMany({
+      where: {
+        [field]: false,
+        expiryDate: { gte: windowStart, lte: windowEnd },
+      },
+      include: {
+        vendor: {
+          include: {
+            users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, name: true } },
+          },
+        },
+      },
+      orderBy: { expiryDate: 'asc' },
+    });
+
+    if (licences.length === 0) continue;
+
+    const byVendor = {};
+    for (const lic of licences) {
+      if (!byVendor[lic.vendorId]) byVendor[lic.vendorId] = { vendor: lic.vendor, licences: [] };
+      byVendor[lic.vendorId].licences.push(lic);
+    }
+
+    for (const [vendorId, group] of Object.entries(byVendor)) {
+      const { vendor, licences: vendorLics } = group;
+      const emails = vendor.users?.length > 0 ? vendor.users.map(u => u.email) : [vendor.contactEmail];
+      const recipientName = vendor.users?.[0]?.name || vendor.companyName;
+
+      const licRows = vendorLics.map(l => {
+        const exp = new Date(l.expiryDate);
+        const dl = Math.ceil((exp - now) / (1000 * 60 * 60 * 24));
+        const over = dl < 0;
+        const sc = over ? '#E84B4B' : dl <= 7 ? '#E07B20' : '#F5A623';
+        const badge = over
+          ? `<span style="background:#FEE8E8;color:#C0392B;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${Math.abs(dl)}d OVERDUE</span>`
+          : `<span style="background:#FFF3DC;color:#B8731A;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700">${dl === 0 ? 'TODAY' : `${dl}d left`}</span>`;
+        return `<tr style="border-bottom:1px solid #F0F4F8">
+          <td style="padding:11px 14px;font-weight:700;color:#0A1628;font-size:13px">${l.driverName}</td>
+          <td style="padding:11px 14px;color:#444;font-size:13px">${l.licenceCategory}</td>
+          <td style="padding:11px 14px;color:#777;font-size:12px;font-family:monospace">${l.licenceNumber || '—'}</td>
+          <td style="padding:11px 14px;color:${sc};font-weight:700;font-size:13px">${exp.toLocaleDateString('en-NG', { day:'numeric', month:'short', year:'numeric' })}</td>
+          <td style="padding:11px 14px;text-align:center">${badge}</td>
+        </tr>`;
+      }).join('');
+
+      const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#F0F4F8;font-family:'Segoe UI',Arial,sans-serif">
+<div style="max-width:680px;margin:0 auto;padding:24px 16px">
+  <div style="background:#0A1628;border-radius:12px 12px 0 0;padding:24px 28px;text-align:center">
+    <div style="font-size:22px;font-weight:800;color:#F5A623">⚓ FleetAnchor Pro</div>
+    <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:2.5px">DRIVER LICENCE ALERT</div>
+  </div>
+  <div style="background:#fff;border-radius:0 0 12px 12px;padding:28px;box-shadow:0 4px 16px rgba(0,0,0,.10)">
+    <div style="background:${color};color:#fff;padding:12px 18px;border-radius:10px;font-weight:700;font-size:15px;margin-bottom:22px;text-align:center">${label}</div>
+    <p style="font-size:14px;color:#333;margin:0 0 6px">Dear ${recipientName},</p>
+    <p style="font-size:13px;color:#666;margin:0 0 20px;line-height:1.6">
+      ${vendorLics.length} driver licence${vendorLics.length > 1 ? 's' : ''} for <strong>${vendor.companyName}</strong> 
+      ${days === 0 ? '<strong style="color:#E84B4B">expire TODAY</strong>. Immediate renewal required.' : `will expire within <strong>${days} days</strong>. Please arrange renewals.`}
+    </p>
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <div style="flex:1;min-width:100px;background:#F8FAFC;border-radius:8px;padding:14px;text-align:center;border:1px solid #E8EEF4">
+        <div style="font-size:24px;font-weight:800;color:${color}">${vendorLics.length}</div>
+        <div style="font-size:11px;color:#888">Licences Due</div>
+      </div>
+      <div style="flex:1;min-width:100px;background:#F8FAFC;border-radius:8px;padding:14px;text-align:center;border:1px solid #E8EEF4">
+        <div style="font-size:24px;font-weight:800;color:#0A1628">${days === 0 ? 'TODAY' : days + 'd'}</div>
+        <div style="font-size:11px;color:#888">Until Expiry</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px;border:1px solid #E8EEF4;border-radius:8px;overflow:hidden">
+      <thead><tr style="background:#0A1628;color:#fff">
+        <th style="padding:11px 14px;text-align:left;font-size:12px">Driver Name</th>
+        <th style="padding:11px 14px;text-align:left;font-size:12px">Category</th>
+        <th style="padding:11px 14px;text-align:left;font-size:12px">Licence No.</th>
+        <th style="padding:11px 14px;text-align:left;font-size:12px">Expiry Date</th>
+        <th style="padding:11px 14px;text-align:center;font-size:12px">Status</th>
+      </tr></thead>
+      <tbody>${licRows}</tbody>
+    </table>
+    <div style="text-align:center;margin-bottom:20px">
+      <a href="${process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app'}/vendor/drivers"
+         style="background:#F5A623;color:#000;font-weight:800;padding:13px 32px;border-radius:9px;text-decoration:none;font-size:14px;display:inline-block">
+        Manage Driver Licences →
+      </a>
+    </div>
+    <p style="font-size:11px;color:#aaa;text-align:center;margin:0">After renewal, update the expiry date to reset this alert. Alerts fire at 30, 15, 7 days and on expiry day.</p>
+  </div>
+</div></body></html>`;
+
+      for (const toEmail of emails) {
+        if (!toEmail) continue;
+        try {
+          await sendEmail({
+            to: toEmail,
+            subject: `${label} — ${vendorLics.length} Driver Licence${vendorLics.length > 1 ? 's' : ''} Expiring | ${vendor.companyName}`,
+            html,
+          });
+        } catch (e) { logger.error(`[DRIVER LICENCE ALERT] Email failed: ${e.message}`); }
+      }
+
+      await prisma.driverLicence.updateMany({
+        where: { id: { in: vendorLics.map(l => l.id) } },
+        data: { [field]: true },
+      });
+      totalSent++;
+    }
+  }
+  return { sent: totalSent };
+}
+
+module.exports = { checkComplianceAlerts, checkServiceAlertsBatched, checkDriverLicenceAlerts };
