@@ -1,107 +1,113 @@
-import React, { useState } from 'react';
-import { Download, Search, CheckCircle } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, Download, DollarSign, CheckCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { invoiceService } from '../../services/api';
 
-const MOCK = [
-  { id:'1', num:'INV-2601', job:'JB-2643', plate:'OG-341-KS', vendor:'Lafarge Cement', parts:310000, labour:175000, total:485000, status:'PAID', issued:'2026-05-27', paid:'2026-05-27', ref:'PS_REF_8821K' },
-  { id:'2', num:'INV-2600', job:'JB-2640', plate:'KN-772-AA', vendor:'Coca-Cola Nigeria', parts:78000, labour:42000, total:120000, status:'UNPAID', issued:'2026-05-25', paid:null, ref:null },
-  { id:'3', num:'INV-2599', job:'JB-2638', plate:'ABJ-009-FG', vendor:'Dangote Flour', parts:220000, labour:96000, total:316000, status:'PAID', issued:'2026-05-22', paid:'2026-05-23', ref:'PS_REF_7740A' },
-  { id:'4', num:'INV-2598', job:'JB-2635', plate:'EN-207-GH', vendor:'Julius Berger', parts:540000, labour:240000, total:780000, status:'PAID', issued:'2026-05-20', paid:'2026-05-21', ref:'PS_REF_7391B' },
-];
-
-const fmt = n => `₦${n.toLocaleString()}`;
+const fmt = n => `₦${Number(n||0).toLocaleString()}`;
+const fmtK = n => n >= 1000000 ? `₦${(n/1000000).toFixed(1)}M` : n >= 1000 ? `₦${(n/1000).toFixed(0)}K` : fmt(n);
 
 export default function InvoicesPage() {
-  const [invoices, setInvoices] = useState(MOCK);
-  const [search, setSearch] = useState('');
+  const [invoices, setInvoices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [downloading, setDownloading] = useState(null);
 
-  const filtered = invoices.filter(i => !search || i.num.includes(search) || i.vendor.toLowerCase().includes(search.toLowerCase()) || i.plate.includes(search.toUpperCase()));
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    try {
+      const res = await invoiceService.list({ limit: 200 });
+      setInvoices(res.data?.data || res.data?.invoices || []);
+    } catch { toast.error('Failed to load invoices'); }
+    finally { setLoading(false); setRefreshing(false); }
+  }, []);
 
-  const confirmPayment = (id) => {
-    setInvoices(prev => prev.map(i => i.id===id ? {...i, status:'PAID', paid: new Date().toISOString().slice(0,10)} : i));
-    toast.success('Payment confirmed. Invoice closed.');
+  useEffect(() => { load(); }, [load]);
+
+  const paid = invoices.filter(i => i.paymentConfirmed || i.status === 'PAID');
+  const outstanding = invoices.filter(i => !i.paymentConfirmed && i.status !== 'PAID');
+  const totalPaid = paid.reduce((a,i) => a + (i.totalAmount||0), 0);
+  const totalOutstanding = outstanding.reduce((a,i) => a + (i.totalAmount||0), 0);
+
+  const handleDownload = async (inv) => {
+    setDownloading(inv.id);
+    try {
+      const res = await invoiceService.downloadPDF(inv.id);
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const a = document.createElement('a'); a.href = url; a.download = `${inv.invoiceNumber||'invoice'}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch { toast.error('PDF download failed'); }
+    finally { setDownloading(null); }
   };
-
-  const exportPDF = (inv) => {
-    const doc = new jsPDF();
-    doc.setFontSize(20); doc.text('INVOICE', 14, 20);
-    doc.setFontSize(10);
-    doc.text(`FleetAnchor Pro · AfriFleet Motors`, 14, 28);
-    doc.text(`Invoice #: ${inv.num}`, 140, 20);
-    doc.text(`Job #: ${inv.job}`, 140, 26);
-    doc.text(`Date: ${inv.issued}`, 140, 32);
-    doc.text(`Vendor: ${inv.vendor}`, 14, 40);
-    doc.text(`Vehicle: ${inv.plate}`, 14, 46);
-    doc.autoTable({
-      startY: 55,
-      head: [['Description','Amount']],
-      body: [['Parts & Materials', fmt(inv.parts)],['Labour', fmt(inv.labour)],['Total', fmt(inv.total)]],
-      theme: 'grid',
-      headStyles: { fillColor: [10, 22, 40] },
-    });
-    if (inv.status==='PAID') {
-      doc.setFontSize(16); doc.setTextColor(46, 204, 113);
-      doc.text('PAID', 14, doc.lastAutoTable.finalY + 14);
-      doc.setTextColor(0);
-    }
-    doc.save(`${inv.num}.pdf`);
-    toast.success('PDF exported');
-  };
-
-  const totalRevenue = invoices.filter(i=>i.status==='PAID').reduce((s,i)=>s+i.total,0);
-  const totalPending = invoices.filter(i=>i.status==='UNPAID').reduce((s,i)=>s+i.total,0);
 
   return (
     <div>
       <div className="page-header">
-        <h1 className="text-sm font-semibold text-[var(--text)]">Invoices & Payments</h1>
-        <div className="flex gap-2">
-          <div className="flex items-center gap-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5">
-            <Search className="w-3 h-3 text-[var(--text3)]"/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className="bg-transparent text-xs placeholder-[var(--text3)] text-[var(--text)] outline-none w-32"/>
-          </div>
+        <div>
+          <h1 className="text-sm font-semibold text-[var(--text)]">Invoices & Costs</h1>
+          {!loading && <p className="text-[10px] text-[var(--text3)] mt-0.5">{invoices.length} invoices</p>}
         </div>
+        <button onClick={() => load(true)} disabled={refreshing} className="btn-ghost p-1.5 rounded-lg">
+          <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+        </button>
       </div>
 
-      <div className="p-5">
-        <div className="grid grid-cols-3 gap-3 mb-5">
-          <div className="stat-card"><div className="text-[9px] uppercase tracking-wider text-[var(--text3)] mb-1">Collected MTD</div><div className="text-xl font-bold text-anchor-green">{fmt(totalRevenue)}</div></div>
-          <div className="stat-card"><div className="text-[9px] uppercase tracking-wider text-[var(--text3)] mb-1">Pending Collection</div><div className="text-xl font-bold text-gold">{fmt(totalPending)}</div></div>
-          <div className="stat-card"><div className="text-[9px] uppercase tracking-wider text-[var(--text3)] mb-1">Total Invoices</div><div className="text-xl font-bold text-[var(--text)]">{invoices.length}</div></div>
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: 'Total Revenue', value: fmtK(totalPaid + totalOutstanding), icon: DollarSign, color: 'text-[var(--gold)]', bg: 'bg-[var(--gold)]/10' },
+            { label: 'Paid', value: fmtK(totalPaid), icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10' },
+            { label: 'Outstanding', value: fmtK(totalOutstanding), icon: Clock, color: 'text-yellow-400', bg: 'bg-yellow-500/10' },
+          ].map(({ label, value, icon: Icon, color, bg }) => (
+            <div key={label} className="stat-card flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center flex-shrink-0`}>
+                <Icon size={16} className={color} />
+              </div>
+              <div>
+                <div className="text-[9px] uppercase text-[var(--text3)] mb-0.5">{label}</div>
+                <div className={`text-lg font-bold ${color}`}>{value}</div>
+              </div>
+            </div>
+          ))}
         </div>
 
         <div className="table-wrap">
-          <table className="tbl">
-            <thead><tr><th>Invoice #</th><th>Job</th><th>Vehicle</th><th>Vendor</th><th>Parts</th><th>Labour</th><th>Total</th><th>Status</th><th>Actions</th></tr></thead>
-            <tbody>
-              {filtered.map(inv=>(
-                <tr key={inv.id}>
-                  <td><span className="font-mono text-[11px] font-semibold text-teal">{inv.num}</span></td>
-                  <td className="text-gold">{inv.job}</td>
-                  <td>{inv.plate}</td>
-                  <td>{inv.vendor}</td>
-                  <td>{fmt(inv.parts)}</td>
-                  <td>{fmt(inv.labour)}</td>
-                  <td className="font-bold text-[var(--text)]">{fmt(inv.total)}</td>
-                  <td>
-                    <span className={`pill ${inv.status==='PAID'?'pill-complete':'pill-pending'}`}>
-                      {inv.status}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="flex gap-1">
-                      <button onClick={()=>exportPDF(inv)} className="btn-ghost text-[10px] py-1"><Download className="w-3 h-3"/>PDF</button>
-                      {inv.status==='UNPAID' && (
-                        <button onClick={()=>confirmPayment(inv.id)} className="btn-success text-[10px] py-1"><CheckCircle className="w-3 h-3"/>Paid</button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+              <RefreshCw size={13} className="animate-spin" /> Loading...
+            </div>
+          ) : invoices.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-xs">No invoices yet</div>
+          ) : (
+            <table className="tbl">
+              <thead>
+                <tr><th>Invoice #</th><th>Job #</th><th>Vehicle</th><th>Vendor</th><th>Amount</th><th>Status</th><th>Date</th><th>PDF</th></tr>
+              </thead>
+              <tbody>
+                {invoices.map(inv => {
+                  const isPaid = inv.paymentConfirmed || inv.status === 'PAID';
+                  return (
+                    <tr key={inv.id}>
+                      <td className="font-mono text-[var(--gold)] text-[11px] font-600">{inv.invoiceNumber}</td>
+                      <td className="font-mono text-[11px] text-slate-300">{inv.jobRequest?.jobNumber || '—'}</td>
+                      <td className="text-xs font-medium text-[var(--text)]">{inv.jobRequest?.vehicle?.plateNumber || '—'}</td>
+                      <td className="text-xs text-slate-300">{inv.jobRequest?.vehicle?.vendor?.companyName || '—'}</td>
+                      <td className="text-[var(--gold)] font-600">{fmt(inv.totalAmount)}</td>
+                      <td><span className={`pill text-[10px] ${isPaid ? 'pill-active' : 'pill-pending'}`}>{isPaid ? '✅ Paid' : '⏳ Pending'}</span></td>
+                      <td className="text-[10px] text-[var(--text3)]">
+                        {(inv.issuedAt || inv.createdAt) ? new Date(inv.issuedAt || inv.createdAt).toLocaleDateString('en-NG') : '—'}
+                      </td>
+                      <td>
+                        <button onClick={() => handleDownload(inv)} disabled={downloading === inv.id}
+                          className="btn-ghost text-[10px] py-1 px-2 flex items-center gap-1 disabled:opacity-50">
+                          <Download size={11} /> {downloading === inv.id ? '...' : 'PDF'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

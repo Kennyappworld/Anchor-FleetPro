@@ -32,13 +32,41 @@ router.get('/dashboard', requireRole(['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STAFF'
       prisma.jobRequest.groupBy({ by: ['category'], _count: true, where: tenantFilter(req) }),
     ]);
 
+    // Extra stats for dashboard
+    const [inRepair, totalVendors, monthlyRevenue] = await Promise.all([
+      prisma.vehicle.count({ where: { status: 'IN_REPAIR', ...(req.user.role !== 'SUPER_ADMIN' ? { vendorId: req.user.vendorId } : {}) } }),
+      req.user.role === 'SUPER_ADMIN' ? prisma.vendor.count({ where: { deletedAt: null, status: 'ACTIVE' } }) : Promise.resolve(0),
+      (async () => {
+        const months = [];
+        const now = new Date();
+        for (let i = 5; i >= 0; i--) {
+          const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
+          const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+          const agg = await prisma.invoice.aggregate({
+            where: { paymentConfirmed: true, paidAt: { gte: mStart, lte: mEnd } },
+            _sum: { totalAmount: true },
+          });
+          months.push({ month: mStart.toLocaleString('en', { month: 'short' }), revenue: agg._sum.totalAmount || 0 });
+        }
+        return months;
+      })(),
+    ]);
+
+    const completedMTDCount = await prisma.jobRequest.count({
+      where: { ...tenantFilter(req), status: { in: ['REPAIR_COMPLETE','CLOSED'] }, updatedAt: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } }
+    });
+
     res.json({
       success: true,
       data: {
         totalJobs,
         activeJobs,
-        completedThisMonth,
+        inRepair,
+        totalVendors,
+        completedThisMonth: completedThisMonth || completedMTDCount,
+        revenueMTD: monthlyRevenue[monthlyRevenue.length - 1]?.revenue || 0,
         revenueTotal: revenue._sum.totalAmount || 0,
+        monthlyRevenue,
         byCategory,
       },
     });
