@@ -1,1 +1,1 @@
-web: npx prisma migrate deploy && node src/server.js
+web: npx prisma db push --accept-data-loss && node src/server.js

@@ -1,8 +1,7 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+builder = "nixpacks"
 
 [deploy]
-startCommand = "node src/server.js"
+startCommand = "npx prisma db push --accept-data-loss && node src/server.js"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

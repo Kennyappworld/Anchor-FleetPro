@@ -108,7 +108,7 @@ app.locals.clearCache = clearCache;
 // ── Health check (no auth, no logging) ───────────────────────────────────────
 app.get("/health", (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
-  res.status(200).json({ status: "ok", service: "FleetAnchor Pro API", version: "compliance-v1", timestamp: new Date().toISOString() });
+  res.status(200).json({ status: "ok", service: "FleetAnchor Pro API", version: "schema-sync-v2", timestamp: new Date().toISOString() });
 });
 app.get("/", (req, res) => {
   res.json({ service: "FleetAnchor Pro API", status: "running" });
