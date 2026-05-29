@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Eye, EyeOff, HardDrive, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Clock, Send, Mail, DollarSign } from 'lucide-react';
+import { Save, Eye, EyeOff, HardDrive, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, Clock, Send, Mail, DollarSign, Trash2, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminService, platformService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
@@ -18,6 +18,13 @@ export default function SettingsPage() {
     bankName: '', accountNumber: '', accountName: '',
     emailFrom: '', smtpHost: 'smtp.sendgrid.net', smtpKey: '',
   });
+
+  // Demo reset state
+  const [demoVendors, setDemoVendors] = useState([]);
+  const [demoVendorId, setDemoVendorId] = useState('');
+  const [demoResetting, setDemoResetting] = useState(false);
+  const [demoResult, setDemoResult] = useState(null);
+  const [showDemoConfirm, setShowDemoConfirm] = useState(false);
 
   // Backup state
   const [backupStatus, setBackupStatus] = useState(null);
@@ -417,6 +424,102 @@ export default function SettingsPage() {
           {sendingTest ? 'Sending reports…' : 'Send This Month\'s Reports Now'}
         </button>
         <p className="text-[10px] text-[var(--text3)] mt-2">Only Growth + Enterprise vendors with active subscriptions will receive a report.</p>
+      </div>
+
+
+      {/* ── DEMO DATA RESET ───────────────────────── */}
+      <div className="card p-5 border border-red-500/20">
+        <div className="flex items-center gap-2 mb-1">
+          <Trash2 className="w-5 h-5 text-red-400" />
+          <h3 className="font-semibold text-[var(--text)]">DEMO DATA RESET</h3>
+          <span className="text-[10px] bg-red-500/15 text-red-400 px-2 py-0.5 rounded-full font-medium ml-1">Super Admin Only</span>
+        </div>
+        <p className="text-[12px] text-[var(--text3)] mb-4">
+          Permanently delete all vehicles, vehicle documents, driver licences and related job requests for a selected vendor.
+          Use this to clear dummy/demo data before a client goes live.
+        </p>
+
+        <div className="space-y-3">
+          <div>
+            <label className="text-[11px] font-medium text-[var(--text3)] block mb-1">Select Vendor</label>
+            <div className="relative">
+              <select
+                value={demoVendorId}
+                onChange={e => { setDemoVendorId(e.target.value); setDemoResult(null); }}
+                className="w-full appearance-none rounded-lg border border-white/[0.12] bg-white/[0.06] px-3 py-2.5 pr-8 text-[13px] text-white outline-none focus:border-red-400 transition-colors cursor-pointer"
+                style={{ backgroundColor: 'rgba(15,30,55,0.95)' }}
+              >
+                <option value="" style={{ background: '#0f1e37' }}>Select vendor to reset...</option>
+                {demoVendors.map(v => (
+                  <option key={v.id} value={v.id} style={{ background: '#0f1e37' }}>
+                    {v.companyName} — {v.contactEmail}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            </div>
+          </div>
+
+          {demoResult && (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+              <p className="text-green-400 text-xs font-semibold mb-1">✅ Reset Complete</p>
+              <div className="text-[11px] text-slate-300 space-y-0.5">
+                <p>🚗 {demoResult.vehicles} vehicles deleted</p>
+                <p>📋 {demoResult.documents} documents deleted</p>
+                <p>👤 {demoResult.licences} driver licences deleted</p>
+                <p>🔧 {demoResult.jobs} job requests deleted</p>
+              </div>
+            </div>
+          )}
+
+          {!showDemoConfirm ? (
+            <button
+              onClick={() => { if (!demoVendorId) { alert('Select a vendor first'); return; } setShowDemoConfirm(true); }}
+              disabled={!demoVendorId}
+              className="flex items-center gap-2 bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-4 h-4" />
+              Reset Demo Data
+            </button>
+          ) : (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 space-y-3">
+              <p className="text-red-400 text-sm font-semibold">⚠️ Are you absolutely sure?</p>
+              <p className="text-[12px] text-slate-300">
+                This will permanently delete <strong>ALL vehicles, documents, driver licences and jobs</strong> for{' '}
+                <strong className="text-white">{demoVendors.find(v => v.id === demoVendorId)?.companyName}</strong>.
+                This cannot be undone.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDemoConfirm(false)}
+                  className="flex-1 btn-ghost text-sm py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setDemoResetting(true);
+                    setShowDemoConfirm(false);
+                    setDemoResult(null);
+                    try {
+                      const res = await adminService.resetDemoData(demoVendorId);
+                      setDemoResult(res.data.data);
+                      toast.success(res.data.message);
+                    } catch (err) {
+                      toast.error(err.response?.data?.error || 'Reset failed');
+                    } finally {
+                      setDemoResetting(false);
+                    }
+                  }}
+                  disabled={demoResetting}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold py-2 transition-colors disabled:opacity-50"
+                >
+                  {demoResetting ? 'Resetting...' : 'Yes, Delete Everything'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
     </div>

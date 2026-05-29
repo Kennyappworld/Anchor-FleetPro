@@ -146,6 +146,8 @@ export const adminService = {
   runBackup: () => api.post("/admin/backup/run"),
   testEmail: (to) => api.post("/admin/test-email", { to }),
   sendMonthlyReports: () => api.post("/admin/reports/send-monthly"),
+  getDemoVendors: () => api.get("/admin/demo/vendors"),
+  resetDemoData: (vendorId) => api.post("/admin/demo/reset", { vendorId }),
 };
 
 export const platformService = {

@@ -215,4 +215,68 @@ router.post('/driver-licences/trigger', async (req, res) => {
   }
 });
 
+// POST /api/admin/demo/reset — wipe all demo/dummy data for a vendor (Super Admin only)
+router.post('/demo/reset', async (req, res) => {
+  try {
+    const { vendorId } = req.body;
+    if (!vendorId) return res.status(400).json({ success: false, error: 'vendorId required' });
+
+    // Verify vendor exists
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+
+    // Delete in correct dependency order
+    // 1. Job-related: timelines, estimates, invoices, job requests
+    const vehicleIds = (await prisma.vehicle.findMany({ where: { vendorId }, select: { id: true } })).map(v => v.id);
+
+    let deletedJobs = 0;
+    if (vehicleIds.length > 0) {
+      const jobIds = (await prisma.jobRequest.findMany({ where: { vehicleId: { in: vehicleIds } }, select: { id: true } })).map(j => j.id);
+      if (jobIds.length > 0) {
+        await prisma.jobTimeline.deleteMany({ where: { jobId: { in: jobIds } } });
+        await prisma.estimate.deleteMany({ where: { jobId: { in: jobIds } } });
+        await prisma.invoice.deleteMany({ where: { jobRequestId: { in: jobIds } } });
+        await prisma.jobRequest.deleteMany({ where: { id: { in: jobIds } } });
+        deletedJobs = jobIds.length;
+      }
+    }
+
+    // 2. Vehicle documents
+    const deletedDocs = await prisma.vehicleDocument.deleteMany({ where: { vendorId } });
+
+    // 3. Driver licences
+    const deletedLicences = await prisma.driverLicence.deleteMany({ where: { vendorId } });
+
+    // 4. Vehicles
+    const deletedVehicles = await prisma.vehicle.deleteMany({ where: { vendorId } });
+
+    res.json({
+      success: true,
+      message: `Demo data reset for ${vendor.companyName}`,
+      data: {
+        vehicles: deletedVehicles.count,
+        documents: deletedDocs.count,
+        licences: deletedLicences.count,
+        jobs: deletedJobs,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/demo/vendors — list all vendors for reset dropdown
+router.get('/demo/vendors', async (req, res) => {
+  try {
+    const vendors = await prisma.vendor.findMany({
+      where: { deletedAt: null },
+      select: { id: true, companyName: true, contactEmail: true },
+      orderBy: { companyName: 'asc' },
+    });
+    res.json({ success: true, data: vendors });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
