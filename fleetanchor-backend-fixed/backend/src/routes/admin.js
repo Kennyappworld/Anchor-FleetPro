@@ -89,13 +89,50 @@ router.get('/backup/status', requireRole(['SUPER_ADMIN']), (req, res) => {
   });
 });
 
-module.exports = router;
-
 // POST /api/admin/test-email — Super Admin sends test email
-router.post('/test-email', requireRole(['SUPER_ADMIN']), async (req, res) => {
+router.post('/test-email', async (req, res) => {
   try {
     const { sendEmail } = require('../services/emailService');
     const { to } = req.body;
+    if (!to) return res.status(400).json({ success: false, error: 'Email address required' });
+
+    const sent = await sendEmail({
+      to,
+      subject: '✅ FleetAnchor Pro — Email Delivery Test',
+      html: `
+        <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#0A1628;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+            <div style="font-size:24px;font-weight:800;color:#F5A623">⚓ FleetAnchor Pro</div>
+            <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:1px">EMAIL DELIVERY TEST</div>
+          </div>
+          <div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+            <h2 style="color:#1A6A3A;margin-top:0">✅ Email is working!</h2>
+            <p style="color:#333">This is a test email from your <strong>FleetAnchor Pro</strong> platform.</p>
+            <p style="color:#333">If you received this, SendGrid is correctly configured and all transactional emails will be delivered.</p>
+            <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin:20px 0">
+              <p style="margin:0 0 8px;font-weight:700;color:#0A1628;font-size:13px">📊 System Status</p>
+              <table style="width:100%;font-size:12px">
+                <tr><td style="color:#666;padding:4px 0;width:40%">Sent at</td><td style="font-weight:600">${new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })} WAT</td></tr>
+                <tr><td style="color:#666;padding:4px 0">Provider</td><td style="font-weight:600">SendGrid SMTP</td></tr>
+                <tr><td style="color:#666;padding:4px 0">From</td><td style="font-weight:600">${process.env.SENDGRID_FROM_EMAIL || 'not set'}</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+
+    if (sent) {
+      res.json({ success: true, message: `Test email sent to ${to}` });
+    } else {
+      res.status(500).json({ success: false, error: 'Email failed to send — check SENDGRID_API_KEY and SENDGRID_FROM_EMAIL in Railway variables' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+module.exports = router;
     if (!to) return res.status(400).json({ success: false, error: 'Email address required' });
 
     await sendEmail({

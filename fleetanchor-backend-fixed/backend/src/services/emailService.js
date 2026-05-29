@@ -1,17 +1,35 @@
 const nodemailer = require('nodemailer');
 const logger = require('../config/logger');
 
-// Supports SendGrid (SENDGRID_API_KEY) or generic SMTP
-const transporter = process.env.SENDGRID_API_KEY
-  ? nodemailer.createTransport({ host: 'smtp.sendgrid.net', port: 587, secure: false, auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY } })
-  : nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-});
+// Lazy transporter — built on first use so env vars are always loaded
+let _transporter = null;
+const getTransporter = () => {
+  if (_transporter) return _transporter;
+  if (process.env.SENDGRID_API_KEY) {
+    _transporter = nodemailer.createTransport({
+      host: 'smtp.sendgrid.net',
+      port: 587,
+      secure: false,
+      auth: { user: 'apikey', pass: process.env.SENDGRID_API_KEY },
+    });
+    logger.info('Email: using SendGrid SMTP');
+  } else if (process.env.SMTP_HOST) {
+    _transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    });
+    logger.info('Email: using custom SMTP');
+  } else {
+    logger.warn('Email: NO email provider configured — emails will be skipped');
+    return null;
+  }
+  return _transporter;
+};
 
-const FROM = `"${process.env.EMAIL_FROM_NAME || 'FleetAnchor Pro'}" <${process.env.EMAIL_FROM || process.env.SENDGRID_FROM_EMAIL}>`;
+const getFrom = () =>
+  `"${process.env.EMAIL_FROM_NAME || 'FleetAnchor Pro'}" <${process.env.SENDGRID_FROM_EMAIL || process.env.EMAIL_FROM || 'noreply@fleetanchor.com'}>`;
 
 const baseTemplate = (content) => `
 <!DOCTYPE html>
@@ -59,29 +77,38 @@ const baseTemplate = (content) => `
 </html>`;
 
 const send = async ({ to, subject, html }) => {
+  const transporter = getTransporter();
+  if (!transporter) {
+    logger.warn(`Email skipped (no provider): ${subject} → ${to}`);
+    return false;
+  }
   try {
-    await transporter.sendMail({ from: FROM, to, subject, html });
-    logger.info(`Email sent: ${subject} → ${to}`);
+    const info = await transporter.sendMail({ from: getFrom(), to, subject, html });
+    logger.info(`Email sent OK: ${subject} → ${to} [${info.messageId || 'no-id'}]`);
     return true;
   } catch (err) {
-    logger.error(`Email failed: ${subject} → ${to}: ${err.message}`);
+    logger.error(`Email FAILED: ${subject} → ${to}: ${err.message}`);
+    // Reset transporter so next attempt rebuilds it fresh
+    _transporter = null;
     return false;
   }
 };
 
-// ─── PASSWORD RESET ────────────────────────────────────────────────────────────
+// ─── GENERIC SEND ─────────────────────────────────────────────────────────────
+exports.sendEmail = ({ to, subject, html }) => send({ to, subject, html });
+
+// ─── PASSWORD RESET ───────────────────────────────────────────────────────────
 exports.sendPasswordReset = ({ to, name, otp }) => send({
   to,
   subject: 'FleetAnchor Pro — Password Reset Code',
   html: baseTemplate(`
     <div class="title">Reset your password</div>
     <p>Hi ${name},</p>
-    <p>We received a request to reset your FleetAnchor Pro password. Use the code below:</p>
+    <p>Use the code below to reset your FleetAnchor Pro password:</p>
     <div class="otp-box">${otp}</div>
-    <p style="font-size:12px;color:#888;text-align:center">This code expires in <strong>15 minutes</strong> and can only be used once.</p>
+    <p style="font-size:12px;color:#888;text-align:center">This code expires in <strong>15 minutes</strong>.</p>
     <hr class="divider">
-    <p style="font-size:12px;color:#888">If you didn't request this, your account is safe — someone may have typed your email by mistake. You can safely ignore this email.</p>
-    <p style="font-size:12px;color:#888">For security: this request came from IP <strong>${new Date().toISOString()}</strong></p>
+    <p style="font-size:12px;color:#888">If you didn't request this, you can safely ignore this email.</p>
   `),
 });
 
@@ -97,8 +124,8 @@ exports.sendWelcome = ({ to, name, role, tempPassword }) => send({
     <div class="row"><span class="label">Temporary Password</span><span class="value">${tempPassword}</span></div>
     <div class="row"><span class="label">Role</span><span class="value"><span class="pill pill-gold">${role.replace(/_/g, ' ')}</span></span></div>
     <br>
-    <a href="${process.env.FRONTEND_URL}/login" class="btn">Login to FleetAnchor Pro</a>
-    <p style="font-size:12px;color:#888">Please change your password after first login and set up 2FA for enhanced security.</p>
+    <a href="${process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app'}/login" class="btn">Login to FleetAnchor Pro</a>
+    <p style="font-size:12px;color:#888">Please change your password after first login.</p>
   `),
 });
 
@@ -117,7 +144,6 @@ exports.sendJobSubmittedNotification = async ({ job }) => {
         <div class="row"><span class="label">Vehicle</span><span class="value">${job.vehicle?.vin} · ${job.vehicle?.plateNumber}</span></div>
         <div class="row"><span class="label">Vendor</span><span class="value">${job.vehicle?.vendor?.companyName}</span></div>
         <div class="row"><span class="label">Category</span><span class="value">${job.category}</span></div>
-        <div class="row"><span class="label">Description</span><span class="value">${job.description}</span></div>
         <a href="${process.env.FRONTEND_URL}/jobs/${job.id}" class="btn">View Job Request</a>
       `),
     });
@@ -150,14 +176,14 @@ exports.sendRepairComplete = async ({ job, vendorEmails }) => {
         <div class="row"><span class="label">Vehicle</span><span class="value">${job.vehicle?.make} ${job.vehicle?.model} · ${job.vehicle?.plateNumber}</span></div>
         <div class="row"><span class="label">Job Number</span><span class="value">${job.jobNumber}</span></div>
         <div class="row"><span class="label">Status</span><span class="value"><span class="pill pill-green">Repair Complete</span></span></div>
-        <p>Please arrange payment and collection at your convenience. An invoice has been generated.</p>
+        <p>Please arrange payment and collection. An invoice has been generated.</p>
         <a href="${process.env.FRONTEND_URL}/invoices?job=${job.id}" class="btn">View Invoice</a>
       `),
     });
   }
 };
 
-// ─── SUBSCRIPTION EXPIRY WARNING ──────────────────────────────────────────────
+// ─── SUBSCRIPTION EXPIRY WARNING ─────────────────────────────────────────────
 exports.sendSubscriptionExpiry = async ({ to, name, daysLeft, plan }) => send({
   to,
   subject: `FleetAnchor Pro — Subscription expires in ${daysLeft} days`,
@@ -165,7 +191,6 @@ exports.sendSubscriptionExpiry = async ({ to, name, daysLeft, plan }) => send({
     <div class="title">Subscription Expiry Notice</div>
     <p>Hi ${name},</p>
     <p>Your <strong>${plan}</strong> subscription expires in <strong>${daysLeft} days</strong>.</p>
-    <p>To avoid service interruption, please renew now. Suspended accounts lose access to job submissions and vehicle scanning.</p>
     <a href="${process.env.FRONTEND_URL}/subscription" class="btn">Renew Subscription</a>
   `),
 });
@@ -179,10 +204,6 @@ exports.sendAccountSuspended = async ({ to, name, reason }) => send({
     <p>Hi ${name},</p>
     <p>Your FleetAnchor Pro account has been suspended.</p>
     <div class="row"><span class="label">Reason</span><span class="value">${reason || 'Policy violation or non-payment'}</span></div>
-    <p>Please contact your OEM administrator or reach us at <a href="mailto:support@fleetanchor.com">support@fleetanchor.com</a></p>
+    <p>Please contact <a href="mailto:support@fleetanchor.com">support@fleetanchor.com</a></p>
   `),
 });
-
-
-// ─── GENERIC SEND (used by admin test-email and vendorController) ─────────────
-exports.sendEmail = ({ to, subject, html }) => send({ to, subject, html });
