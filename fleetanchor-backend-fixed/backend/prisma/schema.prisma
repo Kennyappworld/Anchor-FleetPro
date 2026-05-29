@@ -64,6 +64,7 @@ model Vendor {
   inviteAccepted Boolean      @default(false)
   trialEndsAt   DateTime?
   trialPlan     PlanTier?
+  complianceTrialStartedAt DateTime?  // when STARTER first accessed compliance (1-month trial)
   demoMode      Boolean       @default(false)
   deletedAt     DateTime?
   deletedBy     String?
@@ -73,6 +74,7 @@ model Vendor {
   users         User[]
   vehicles      Vehicle[]
   subscriptions Subscription[]
+  documents     VehicleDocument[]
   driverSignupRequests DriverSignupRequest[]
 
   @@index([oemId])
@@ -143,6 +145,7 @@ model Vehicle {
   serviceAlertSent    Boolean     @default(false)  // reset after each service
 
   jobRequests  JobRequest[]
+  documents    VehicleDocument[]
 
   @@index([vin])
   @@index([plateNumber])
@@ -409,4 +412,44 @@ enum SubStatus {
   EXPIRING
   EXPIRED
   SUSPENDED
+}
+
+// ─── VEHICLE DOCUMENTS (Compliance) ───────────────────────────────────────────
+model VehicleDocument {
+  id            String          @id @default(uuid())
+  vehicleId     String
+  vehicle       Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vendorId      String
+  vendor        Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  docType       DocType
+  docNumber     String?
+  issuedDate    DateTime?
+  expiryDate    DateTime
+  alertSent30   Boolean         @default(false)
+  alertSent15   Boolean         @default(false)
+  alertSent7    Boolean         @default(false)
+  alertSentDay  Boolean         @default(false)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([vehicleId])
+  @@index([vendorId])
+  @@index([expiryDate])
+  @@map("vehicle_documents")
+}
+
+enum DocType {
+  ROAD_WORTHINESS
+  VEHICLE_LICENCE
+  INSURANCE
+  HACKNEY_PERMIT
+  ECOWAS_BROWN_CARD
+  FIRE_EXTINGUISHER
+  FIRST_AID_KIT
+  SPEED_LIMITER
+  DRIVERS_LICENCE
+  VEHICLE_REGISTRATION
+  CUSTOMS_PAPER
+  OTHER
 }

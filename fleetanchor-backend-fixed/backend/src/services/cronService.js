@@ -11,20 +11,39 @@ function startCronJobs() {
   }
 
   try {
-    // Daily service alert check - 8:00 AM WAT
+    // Daily service alert check - 8:00 AM WAT (batched, grouped by vendor)
     const serviceAlert = new cron('0 8 * * *', async () => {
       try {
-        logger.info('Running preventive maintenance alert check...');
-        const result = await checkServiceAlerts();
-        logger.info(`[SERVICE ALERT] Complete — ${result.alerted} alerts sent`);
+        logger.info('Running preventive maintenance alert check (batched)...');
+        const { checkServiceAlertsBatched } = require('./complianceAlertService');
+        const result = await checkServiceAlertsBatched();
+        logger.info(`[SERVICE ALERT] Complete -- ${result.alerted} vehicles alerted`);
       } catch (err) {
         logger.error('Service alert check failed:', err.message);
       }
     }, null, true, 'Africa/Lagos');
     jobs.push(serviceAlert);
-    logger.info('Service alert cron scheduled (daily 8 AM WAT)');
+    logger.info('Service alert cron scheduled (daily 8 AM WAT, batched)');
   } catch (err) {
     logger.warn('Failed to start service alert cron:', err.message);
+  }
+
+  try {
+    // Daily document compliance alert - 8:30 AM WAT
+    const complianceAlert = new cron('30 8 * * *', async () => {
+      try {
+        logger.info('Running document compliance alert check...');
+        const { checkComplianceAlerts } = require('./complianceAlertService');
+        const result = await checkComplianceAlerts();
+        logger.info(`[COMPLIANCE ALERT] Complete -- ${result.sent} vendor batches sent`);
+      } catch (err) {
+        logger.error('Compliance alert check failed:', err.message);
+      }
+    }, null, true, 'Africa/Lagos');
+    jobs.push(complianceAlert);
+    logger.info('Compliance alert cron scheduled (daily 8:30 AM WAT)');
+  } catch (err) {
+    logger.warn('Failed to start compliance alert cron:', err.message);
   }
 
   try {

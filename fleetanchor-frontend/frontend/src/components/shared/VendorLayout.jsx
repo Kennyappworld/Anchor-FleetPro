@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wrench, Scan, Truck, History, Receipt, Users, CreditCard, LogOut, MessageCircle, Menu, X, Bell, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Wrench, Scan, Truck, History, Receipt, Users, CreditCard, LogOut, MessageCircle, Menu, X, Bell, ChevronRight, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '../../context/authStore';
 import ChangePasswordModal from './ChangePasswordModal';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ const NAV = [
     { to: '/vendor/jobs',         icon: Wrench,          label: 'My Job Requests',     badge: 3  },
     { to: '/vendor/scanner',      icon: Scan,            label: 'VIN Scanner' },
     { to: '/vendor/vehicles',     icon: Truck,           label: 'My Fleet' },
+    { to: '/vendor/compliance',   icon: ShieldCheck,     label: 'Doc Compliance' },
   ]},
   { section: 'Reports', items: [
     { to: '/vendor/history',      icon: History,         label: 'Maintenance History' },

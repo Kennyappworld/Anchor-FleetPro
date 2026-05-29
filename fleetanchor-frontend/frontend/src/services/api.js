@@ -149,3 +149,12 @@ export const platformService = {
   getSettings: () => api.get('/platform/settings'),
   updateSettings: (data) => api.patch('/platform/settings', data),
 };
+
+export const complianceService = {
+  list: (params) => api.get('/compliance', { params }),
+  summary: () => api.get('/compliance/summary'),
+  add: (data) => api.post('/compliance', data),
+  bulkImport: (rows) => api.post('/compliance/bulk-import', { rows }),
+  update: (id, data) => api.patch(`/compliance/${id}`, data),
+  remove: (id) => api.delete(`/compliance/${id}`),
+};

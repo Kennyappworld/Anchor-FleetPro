@@ -182,4 +182,26 @@ router.post('/reports/preview', async (req, res) => {
   }
 });
 
+// POST /api/admin/compliance/trigger — manually trigger compliance alerts
+router.post('/compliance/trigger', async (req, res) => {
+  try {
+    const { checkComplianceAlerts } = require('../services/complianceAlertService');
+    const result = await checkComplianceAlerts();
+    res.json({ success: true, data: result, message: `Compliance alerts triggered — ${result.sent} vendor batches sent` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/service-alerts/trigger — manually trigger service alerts (batched)
+router.post('/service-alerts/trigger', async (req, res) => {
+  try {
+    const { checkServiceAlertsBatched } = require('../services/complianceAlertService');
+    const result = await checkServiceAlertsBatched();
+    res.json({ success: true, data: result, message: `Service alerts triggered — ${result.alerted} vehicles alerted` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
