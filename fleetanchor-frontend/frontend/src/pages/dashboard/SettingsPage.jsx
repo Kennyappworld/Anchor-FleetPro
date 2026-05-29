@@ -215,8 +215,11 @@ export default function SettingsPage() {
                   <label className="form-label">Annual discount %</label>
                   <input
                     value={pricing.annualDiscountPct || 16.7}
-                    onChange={e => setPricing(p => ({ ...p, annualDiscountPct: parseFloat(e.target.value) || 16.7 })
-                    || setPricingDirty(d => ({ ...d, annualDiscountPct: parseFloat(e.target.value) || 16.7 })))}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value) || 16.7;
+                      setPricing(p => ({ ...p, annualDiscountPct: v }));
+                      setPricingDirty(d => ({ ...d, annualDiscountPct: v }));
+                    }}
                     type="number" step="0.1" min="0" max="50"
                     className="form-input"
                   />

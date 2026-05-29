@@ -1,9 +1,0 @@
-# Cloudflare Pages — SPA redirect rules
-# All routes return index.html so React Router handles them client-side
-
-# API requests should never reach Pages (they go to Railway directly via VITE_API_URL)
-# These are here as a safety net only
-/api/*  https://fleetanchor-api.up.railway.app/api/:splat  200
-
-# SPA fallback — must be last
-/*  /index.html  200
