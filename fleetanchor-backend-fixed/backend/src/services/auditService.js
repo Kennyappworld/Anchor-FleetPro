@@ -91,3 +91,22 @@ exports.getAuditLogs = async ({ userId, entityType, entityId, from, to, page = 1
 
   return { logs, total, pages: Math.ceil(total / limit) };
 };
+
+// ─── Convenience wrapper used by controllers ──────────────────────────────────
+// Signature: logAction(req, action, entityType, entityId, metadata)
+exports.logAction = async (req, action, entityType, entityId, metadata) => {
+  try {
+    await exports.log({
+      userId: req?.user?.userId || req?.user?.id || null,
+      actorLabel: req?.user?.email || req?.user?.role || 'system',
+      action,
+      entityType,
+      entityId: entityId || null,
+      metadata: metadata || null,
+      ipAddress: req?.ip || null,
+      userAgent: req?.headers?.['user-agent'] || null,
+    });
+  } catch {
+    // Audit must never crash the main request
+  }
+};
