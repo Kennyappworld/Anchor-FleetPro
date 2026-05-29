@@ -11,7 +11,24 @@ function startCronJobs() {
   }
 
   try {
-    // Monthly fleet report — 1st of each month, 7:00 AM WAT (GROWTH + ENTERPRISE vendors)
+    // Daily service alert check - 8:00 AM WAT
+    const serviceAlert = new cron('0 8 * * *', async () => {
+      try {
+        logger.info('Running preventive maintenance alert check...');
+        const result = await checkServiceAlerts();
+        logger.info(`[SERVICE ALERT] Complete — ${result.alerted} alerts sent`);
+      } catch (err) {
+        logger.error('Service alert check failed:', err.message);
+      }
+    }, null, true, 'Africa/Lagos');
+    jobs.push(serviceAlert);
+    logger.info('Service alert cron scheduled (daily 8 AM WAT)');
+  } catch (err) {
+    logger.warn('Failed to start service alert cron:', err.message);
+  }
+
+  try {
+    // Daily subscription check - 1:00 AM WAT
     const monthlyReport = new cron('0 7 1 * *', async () => {
       try {
         logger.info('Running monthly fleet maintenance reports...');
@@ -125,3 +142,140 @@ function stopCronJobs() {
 }
 
 module.exports = { startCronJobs, stopCronJobs };
+// exported so it can be called manually in tests
+async function checkServiceAlerts() {
+  const { PrismaClient } = require('@prisma/client');
+  const prisma = new PrismaClient();
+  const { sendEmail } = require('./emailService');
+  const now = new Date();
+  const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+  // Find vehicles due by date (within 30 days) OR overdue, alert not yet sent
+  const byDate = await prisma.vehicle.findMany({
+    where: {
+      status: 'ACTIVE',
+      deletedAt: undefined,
+      nextServiceDate: { lte: in30Days },
+      serviceAlertSent: false,
+    },
+    include: { vendor: { include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 1 } } } },
+  });
+
+  // Find vehicles due by odometer (within 700 km), alert not yet sent
+  const byOdo = await prisma.vehicle.findMany({
+    where: {
+      status: 'ACTIVE',
+      nextServiceOdometer: { not: null },
+      serviceAlertSent: false,
+      currentOdometer: { not: null },
+    },
+    include: { vendor: { include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 1 } } } },
+  });
+
+  const odoAlerts = byOdo.filter(v =>
+    v.nextServiceOdometer - v.currentOdometer <= 700
+  );
+
+  // Merge by id, deduplicate
+  const alertMap = {};
+  [...byDate, ...odoAlerts].forEach(v => { alertMap[v.id] = v; });
+  const toAlert = Object.values(alertMap);
+
+  logger.info(`[SERVICE ALERT] ${toAlert.length} vehicles due for service`);
+
+  for (const v of toAlert) {
+    const email = v.vendor?.users?.[0]?.email || v.vendor?.contactEmail;
+    if (!email) continue;
+
+    const daysUntil = v.nextServiceDate
+      ? Math.ceil((new Date(v.nextServiceDate) - now) / (1000 * 60 * 60 * 24))
+      : null;
+    const kmUntil = v.nextServiceOdometer && v.currentOdometer
+      ? v.nextServiceOdometer - v.currentOdometer
+      : null;
+
+    const isOverdueDate = daysUntil !== null && daysUntil < 0;
+    const isOverdueKm   = kmUntil !== null && kmUntil < 0;
+
+    const urgencyColor = (isOverdueDate || isOverdueKm) ? '#E84B4B' : daysUntil <= 7 ? '#F5A623' : '#1A7A4A';
+    const urgencyLabel = (isOverdueDate || isOverdueKm) ? '🚨 OVERDUE' : daysUntil <= 7 ? '⚠️ DUE SOON' : '📅 UPCOMING';
+
+    await sendEmail({
+      to: email,
+      subject: `${urgencyLabel} — Service Due: ${v.plateNumber} (${v.make} ${v.model})`,
+      html: `
+      <!DOCTYPE html><html><body style="margin:0;padding:0;background:#F0F4F8;font-family:'Segoe UI',Arial,sans-serif">
+      <div style="max-width:600px;margin:0 auto;padding:24px 16px">
+        <div style="background:#0A1628;border-radius:12px 12px 0 0;padding:24px 28px;text-align:center">
+          <div style="font-size:20px;font-weight:800;color:#F5A623">⚓ FleetAnchor Pro</div>
+          <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:2px">PREVENTIVE MAINTENANCE ALERT</div>
+        </div>
+        <div style="background:#fff;border-radius:0 0 12px 12px;padding:28px;box-shadow:0 4px 12px rgba(0,0,0,.08)">
+          <div style="background:${urgencyColor};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;margin-bottom:20px;text-align:center">
+            ${urgencyLabel} — Scheduled Service Required
+          </div>
+          <h2 style="margin:0 0 16px;font-size:16px;color:#0A1628">${v.make} ${v.model} ${v.year} · <span style="color:#F5A623">${v.plateNumber}</span></h2>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
+            ${daysUntil !== null ? `
+            <tr style="background:#F8FAFC">
+              <td style="padding:10px 12px;color:#666">Next Service Date</td>
+              <td style="padding:10px 12px;font-weight:700;color:${urgencyColor}">
+                ${new Date(v.nextServiceDate).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
+                ${isOverdueDate ? ` <span style="background:#FEE8E8;color:#C0392B;padding:2px 8px;border-radius:4px;font-size:11px">${Math.abs(daysUntil)} days OVERDUE</span>`
+                  : ` <span style="background:#FFF3DC;color:#B8731A;padding:2px 8px;border-radius:4px;font-size:11px">in ${daysUntil} days</span>`}
+              </td>
+            </tr>` : ''}
+            ${kmUntil !== null ? `
+            <tr>
+              <td style="padding:10px 12px;color:#666">Odometer at Service</td>
+              <td style="padding:10px 12px;font-weight:700;color:${isOverdueKm ? '#E84B4B' : '#0A1628'}">
+                ${v.nextServiceOdometer?.toLocaleString()} km
+                ${isOverdueKm ? ` <span style="background:#FEE8E8;color:#C0392B;padding:2px 8px;border-radius:4px;font-size:11px">${Math.abs(kmUntil)} km OVERDUE</span>`
+                  : ` <span style="background:#E6FAF0;color:#1A7A4A;padding:2px 8px;border-radius:4px;font-size:11px">${kmUntil} km remaining</span>`}
+              </td>
+            </tr>` : ''}
+            <tr style="background:#F8FAFC">
+              <td style="padding:10px 12px;color:#666">Current Odometer</td>
+              <td style="padding:10px 12px;font-weight:600">${v.currentOdometer ? v.currentOdometer.toLocaleString() + ' km' : 'Not recorded'}</td>
+            </tr>
+            <tr>
+              <td style="padding:10px 12px;color:#666">Last Service</td>
+              <td style="padding:10px 12px;font-weight:600">
+                ${v.lastServiceDate ? new Date(v.lastServiceDate).toLocaleDateString('en-NG') : 'Not recorded'}
+                ${v.lastServiceOdometer ? ` at ${v.lastServiceOdometer.toLocaleString()} km` : ''}
+              </td>
+            </tr>
+            <tr style="background:#F8FAFC">
+              <td style="padding:10px 12px;color:#666">Service Interval</td>
+              <td style="padding:10px 12px;font-weight:600">
+                ${v.serviceIntervalDays ? `Every ${v.serviceIntervalDays} days` : ''}
+                ${v.serviceIntervalDays && v.serviceIntervalKm ? ' / ' : ''}
+                ${v.serviceIntervalKm ? `Every ${v.serviceIntervalKm.toLocaleString()} km` : ''}
+              </td>
+            </tr>
+          </table>
+          <div style="text-align:center">
+            <a href="${process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app'}/vendor/vehicles"
+               style="background:#F5A623;color:#000;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;display:inline-block">
+              Submit Service Job Request →
+            </a>
+          </div>
+          <p style="font-size:11px;color:#999;text-align:center;margin-top:16px">
+            After servicing, update the odometer and last service date in your vehicles dashboard to reset this alert.
+          </p>
+        </div>
+      </div>
+      </body></html>`,
+    });
+
+    await prisma.vehicle.update({
+      where: { id: v.id },
+      data: { serviceAlertSent: true },
+    });
+  }
+
+  await prisma.$disconnect();
+  return { alerted: toAlert.length };
+}
+
+module.exports.checkServiceAlerts = checkServiceAlerts;

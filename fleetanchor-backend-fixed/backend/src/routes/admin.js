@@ -142,6 +142,17 @@ router.post('/test-email', async (req, res) => {
   }
 });
 
+// POST /api/admin/alerts/check-service — manually trigger service due alerts
+router.post('/alerts/check-service', async (req, res) => {
+  try {
+    const { checkServiceAlerts } = require('../services/cronService');
+    const result = await checkServiceAlerts();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // POST /api/admin/reports/send-monthly — manually trigger monthly reports
 router.post('/reports/send-monthly', async (req, res) => {
   try {

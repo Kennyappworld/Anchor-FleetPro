@@ -76,6 +76,8 @@ export const vehicleService = {
   update: (id, data) => api.patch(`/vehicles/${id}`, data),
   remove: (id) => api.delete(`/vehicles/${id}`),
   bulkImport: (vehicles, vendorId) => api.post("/vehicles/bulk-import", { vehicles, vendorId }),
+  updateServiceSchedule: (id, data) => api.patch(`/vehicles/${id}/service-schedule`, data),
+  updateOdometer: (id, km) => api.patch(`/vehicles/${id}/odometer`, { currentOdometer: km }),
 };
 
 export const vendorService = {

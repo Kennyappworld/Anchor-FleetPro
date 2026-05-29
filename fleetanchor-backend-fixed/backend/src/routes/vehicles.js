@@ -45,4 +45,20 @@ router.post("/bulk-import",
   vc.bulkImport
 );
 
+// Update service schedule (last service date, odometer, intervals)
+router.patch("/:id/service-schedule",
+  requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER"]),
+  param("id").isUUID(),
+  validate,
+  vc.updateServiceSchedule
+);
+
+// Update current odometer reading only
+router.patch("/:id/odometer",
+  requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER","MAINTENANCE_SUPERVISOR"]),
+  param("id").isUUID(),
+  validate,
+  vc.updateOdometer
+);
+
 module.exports = router;

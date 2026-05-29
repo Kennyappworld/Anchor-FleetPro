@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Scan, Plus, Search, Upload, Trash2, X, FileSpreadsheet, CheckCircle, AlertCircle, ChevronDown, Car } from 'lucide-react';
+import { Scan, Plus, Search, Upload, Trash2, X, FileSpreadsheet, CheckCircle, AlertCircle, ChevronDown, Car, Wrench, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -38,6 +38,14 @@ export default function VendorVehiclesPage() {
   // Delete confirm
   const [deleteId, setDeleteId] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+
+  // Service schedule modal
+  const [serviceModal, setServiceModal] = useState(null); // vehicle object
+  const [serviceForm, setServiceForm] = useState({
+    lastServiceDate: '', lastServiceOdometer: '',
+    currentOdometer: '', serviceIntervalDays: '', serviceIntervalKm: '',
+  });
+  const [serviceLoading, setServiceLoading] = useState(false);
 
   useEffect(() => { fetchVehicles(); }, []);
 
@@ -131,6 +139,41 @@ export default function VendorVehiclesPage() {
 
   const inRepair = vehicles.filter(v => v.status === 'IN_REPAIR').length;
 
+  const openServiceModal = (v) => {
+    setServiceModal(v);
+    setServiceForm({
+      lastServiceDate: v.lastServiceDate ? v.lastServiceDate.split('T')[0] : '',
+      lastServiceOdometer: v.lastServiceOdometer || '',
+      currentOdometer: v.currentOdometer || '',
+      serviceIntervalDays: v.serviceIntervalDays || '',
+      serviceIntervalKm: v.serviceIntervalKm || '',
+    });
+  };
+
+  const handleSaveSchedule = async () => {
+    setServiceLoading(true);
+    try {
+      const res = await vehicleService.updateServiceSchedule(serviceModal.id, serviceForm);
+      setVehicles(prev => prev.map(v => v.id === serviceModal.id ? { ...v, ...res.data.data } : v));
+      toast.success('Service schedule saved!');
+      setServiceModal(null);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Failed to save');
+    } finally { setServiceLoading(false); }
+  };
+
+  const getServiceStatus = (v) => {
+    const now = new Date();
+    const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const overdueDate = v.nextServiceDate && new Date(v.nextServiceDate) < now;
+    const dueDate = v.nextServiceDate && new Date(v.nextServiceDate) <= in30;
+    const kmLeft = v.nextServiceOdometer && v.currentOdometer ? v.nextServiceOdometer - v.currentOdometer : null;
+    if (overdueDate || (kmLeft !== null && kmLeft < 0)) return { label: 'Overdue', cls: 'bg-red-500/20 text-red-400', icon: '🚨' };
+    if (dueDate || (kmLeft !== null && kmLeft <= 700)) return { label: 'Due Soon', cls: 'bg-amber-500/20 text-amber-400', icon: '⚠️' };
+    if (v.nextServiceDate || v.nextServiceOdometer) return { label: 'On Schedule', cls: 'bg-green-500/20 text-green-400', icon: '✅' };
+    return null;
+  };
+
   return (
     <div>
       {/* Header */}
@@ -190,10 +233,20 @@ export default function VendorVehiclesPage() {
                       <td>{v.make} {v.model}</td>
                       <td>{v.year}</td>
                       <td><span className={`pill ${s.cls}`}>{s.label}</span></td>
+                      <td>
+                        {(() => { const ss = getServiceStatus(v); return ss
+                          ? <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${ss.cls}`}>{ss.icon} {ss.label}</span>
+                          : <span className="text-[10px] text-[var(--text3)]">—</span>; })()}
+                      </td>
                       <td>{v._count?.jobRequests ?? '-'}</td>
                       <td>
                         <button onClick={() => navigate('/vendor/scanner')} className="btn-ghost text-[10px] py-1">
                           <Scan className="w-3 h-3" />Scan
+                        </button>
+                      </td>
+                      <td>
+                        <button onClick={() => openServiceModal(v)} className="btn-ghost text-[10px] py-1 text-amber-400 hover:bg-amber-400/10" title="Service Schedule">
+                          <Wrench className="w-3 h-3" />
                         </button>
                       </td>
                       <td>
@@ -347,6 +400,97 @@ export default function VendorVehiclesPage() {
               <button onClick={() => setDeleteId(null)} disabled={deleteLoading} className="flex-1 btn-ghost justify-center py-2">Cancel</button>
               <button onClick={handleDelete} disabled={deleteLoading} className="flex-1 btn-primary bg-anchor-red hover:bg-anchor-red/80 justify-center py-2 disabled:opacity-50">
                 {deleteLoading ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Service Schedule Modal ── */}
+      {serviceModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !serviceLoading && setServiceModal(null)}>
+          <div className="card w-full max-w-lg p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-2">
+                <Wrench className="w-4 h-4 text-amber-400" />
+                <h3 className="text-sm font-semibold text-[var(--text)]">Service Schedule</h3>
+              </div>
+              <button onClick={() => setServiceModal(null)} className="text-[var(--text3)] hover:text-[var(--text)]"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-[11px] text-[var(--text3)] mb-4">
+              {serviceModal.plateNumber} · {serviceModal.make} {serviceModal.model} {serviceModal.year}
+            </p>
+
+            <div className="space-y-4">
+              {/* Last service */}
+              <div>
+                <p className="text-[11px] font-semibold text-[var(--text)] mb-2 uppercase tracking-wide">Last Service</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-[var(--text3)] mb-1 block">Date</label>
+                    <input type="date" value={serviceForm.lastServiceDate}
+                      onChange={e => setServiceForm(f => ({ ...f, lastServiceDate: e.target.value }))}
+                      className="input text-[12px] py-1.5 w-full" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[var(--text3)] mb-1 block">Odometer (km)</label>
+                    <input type="number" placeholder="e.g. 45000" value={serviceForm.lastServiceOdometer}
+                      onChange={e => setServiceForm(f => ({ ...f, lastServiceOdometer: e.target.value }))}
+                      className="input text-[12px] py-1.5 w-full" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Current odometer */}
+              <div>
+                <p className="text-[11px] font-semibold text-[var(--text)] mb-2 uppercase tracking-wide">Current Odometer</p>
+                <input type="number" placeholder="e.g. 48500" value={serviceForm.currentOdometer}
+                  onChange={e => setServiceForm(f => ({ ...f, currentOdometer: e.target.value }))}
+                  className="input text-[12px] py-1.5 w-full" />
+              </div>
+
+              {/* Service intervals */}
+              <div>
+                <p className="text-[11px] font-semibold text-[var(--text)] mb-2 uppercase tracking-wide">Service Intervals (alert when either is reached)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-[var(--text3)] mb-1 block">Every N days</label>
+                    <input type="number" placeholder="e.g. 90" value={serviceForm.serviceIntervalDays}
+                      onChange={e => setServiceForm(f => ({ ...f, serviceIntervalDays: e.target.value }))}
+                      className="input text-[12px] py-1.5 w-full" />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[var(--text3)] mb-1 block">Every N km</label>
+                    <input type="number" placeholder="e.g. 5000" value={serviceForm.serviceIntervalKm}
+                      onChange={e => setServiceForm(f => ({ ...f, serviceIntervalKm: e.target.value }))}
+                      className="input text-[12px] py-1.5 w-full" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview next service */}
+              {(serviceForm.lastServiceDate && serviceForm.serviceIntervalDays) || (serviceForm.lastServiceOdometer && serviceForm.serviceIntervalKm) ? (
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 text-[11px]">
+                  <p className="font-semibold text-amber-400 mb-1">📅 Next service will be due:</p>
+                  {serviceForm.lastServiceDate && serviceForm.serviceIntervalDays && (
+                    <p className="text-[var(--text3)]">By date: <strong className="text-[var(--text)]">
+                      {new Date(new Date(serviceForm.lastServiceDate).getTime() + parseInt(serviceForm.serviceIntervalDays) * 86400000).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </strong></p>
+                  )}
+                  {serviceForm.lastServiceOdometer && serviceForm.serviceIntervalKm && (
+                    <p className="text-[var(--text3)]">By odometer: <strong className="text-[var(--text)]">
+                      {(parseInt(serviceForm.lastServiceOdometer) + parseInt(serviceForm.serviceIntervalKm)).toLocaleString()} km
+                    </strong></p>
+                  )}
+                  <p className="text-[var(--text3)] mt-1">You'll receive an email alert 30 days before the date or 700 km before the odometer target.</p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex gap-2 mt-5">
+              <button onClick={() => setServiceModal(null)} disabled={serviceLoading} className="flex-1 btn-ghost justify-center py-2">Cancel</button>
+              <button onClick={handleSaveSchedule} disabled={serviceLoading} className="flex-1 btn-primary justify-center py-2 disabled:opacity-50">
+                {serviceLoading ? 'Saving…' : 'Save Schedule'}
               </button>
             </div>
           </div>

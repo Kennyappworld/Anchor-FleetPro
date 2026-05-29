@@ -131,10 +131,22 @@ model Vehicle {
   status       VehicleStatus @default(ACTIVE)
   registeredAt DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
+  // ── Preventive Maintenance Scheduling ──────────────────────────────────────
+  lastServiceDate     DateTime?
+  lastServiceOdometer Int?        // km at last service
+  currentOdometer     Int?        // current odometer reading
+  serviceIntervalDays Int?        // e.g. 90 (days between services)
+  serviceIntervalKm   Int?        // e.g. 5000 (km between services)
+  nextServiceDate     DateTime?   // calculated: lastServiceDate + intervalDays
+  nextServiceOdometer Int?        // calculated: lastServiceOdometer + intervalKm
+  serviceAlertSent    Boolean     @default(false)  // reset after each service
+
   jobRequests  JobRequest[]
 
   @@index([vin])
   @@index([plateNumber])
+  @@index([nextServiceDate])
   @@map("vehicles")
 }
 

@@ -175,3 +175,53 @@ exports.bulkImport = async (req, res, next) => {
     res.json({ success: true, ...results });
   } catch (err) { next(err); }
 };
+
+// ─── SERVICE SCHEDULE ─────────────────────────────────────────────────────────
+exports.updateServiceSchedule = async (req, res, next) => {
+  try {
+    const {
+      lastServiceDate, lastServiceOdometer,
+      currentOdometer, serviceIntervalDays, serviceIntervalKm,
+    } = req.body;
+
+    const last = lastServiceDate ? new Date(lastServiceDate) : null;
+    const nextDate = last && serviceIntervalDays
+      ? new Date(last.getTime() + serviceIntervalDays * 24 * 60 * 60 * 1000)
+      : null;
+    const nextOdo = lastServiceOdometer && serviceIntervalKm
+      ? parseInt(lastServiceOdometer) + parseInt(serviceIntervalKm)
+      : null;
+
+    const vehicle = await prisma.vehicle.update({
+      where: { id: req.params.id },
+      data: {
+        lastServiceDate: last,
+        lastServiceOdometer: lastServiceOdometer ? parseInt(lastServiceOdometer) : null,
+        currentOdometer: currentOdometer ? parseInt(currentOdometer) : null,
+        serviceIntervalDays: serviceIntervalDays ? parseInt(serviceIntervalDays) : null,
+        serviceIntervalKm: serviceIntervalKm ? parseInt(serviceIntervalKm) : null,
+        nextServiceDate: nextDate,
+        nextServiceOdometer: nextOdo,
+        serviceAlertSent: false, // reset alert so new alerts fire for next cycle
+      },
+    });
+
+    await logAction(req, 'VEHICLE_SERVICE_UPDATED', 'Vehicle', req.params.id, {
+      lastServiceDate, nextServiceDate: nextDate, nextServiceOdometer: nextOdo,
+    });
+    res.json({ success: true, data: vehicle });
+  } catch (err) { next(err); }
+};
+
+exports.updateOdometer = async (req, res, next) => {
+  try {
+    const { currentOdometer } = req.body;
+    if (!currentOdometer) return res.status(400).json({ success: false, error: 'currentOdometer required' });
+
+    const vehicle = await prisma.vehicle.update({
+      where: { id: req.params.id },
+      data: { currentOdometer: parseInt(currentOdometer) },
+    });
+    res.json({ success: true, data: vehicle });
+  } catch (err) { next(err); }
+};
