@@ -7,15 +7,16 @@ const vc = require('../controllers/vendorController');
 router.use(authenticate, scopeToTenant);
 
 router.get('/', vc.list);
+router.get('/deleted/list', requireRole(['SUPER_ADMIN']), vc.listDeleted);
 router.get('/:id', param('id').isUUID(), validate, vc.getOne);
 router.get('/:id/stats', param('id').isUUID(), validate, vc.stats);
 
 router.post('/',
   requireRole(['SUPER_ADMIN','OEM_ADMIN']),
   body('companyName').trim().notEmpty(),
-  body('contactEmail').optional().isEmail(),
-  body('email').optional().isEmail(),
-  body('oemId').optional().isUUID(),
+  body('contactEmail').optional({ nullable: true, checkFalsy: true }).isEmail(),
+  body('email').optional({ nullable: true, checkFalsy: true }).isEmail(),
+  body('oemId').optional({ nullable: true, checkFalsy: true }).isUUID(),
   validate,
   vc.create
 );
@@ -56,9 +57,5 @@ router.post('/:id/restore',
   vc.restore
 );
 
-router.get('/deleted/list',
-  requireRole(['SUPER_ADMIN']),
-  vc.listDeleted
-);
 
 module.exports = router;

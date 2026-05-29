@@ -182,3 +182,7 @@ exports.sendAccountSuspended = async ({ to, name, reason }) => send({
     <p>Please contact your OEM administrator or reach us at <a href="mailto:support@fleetanchor.com">support@fleetanchor.com</a></p>
   `),
 });
+
+
+// ─── GENERIC SEND (used by admin test-email and vendorController) ─────────────
+exports.sendEmail = ({ to, subject, html }) => send({ to, subject, html });

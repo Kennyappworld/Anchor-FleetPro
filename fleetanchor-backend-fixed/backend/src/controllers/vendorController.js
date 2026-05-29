@@ -202,10 +202,10 @@ exports.suspend = async (req, res, next) => {
     });
     // Notify primary contact
     if (vendor.users[0]) {
-      await sendEmail(vendor.users[0].email, 'accountSuspended', {
-        name: vendor.users[0].fullName,
-        vendorName: vendor.companyName,
-        reason,
+      await sendEmail({
+        to: vendor.users[0].email,
+        subject: 'FleetAnchor Pro — Account Suspended',
+        html: `<p>Hi ${vendor.users[0].fullName},</p><p>Your account for <strong>${vendor.companyName}</strong> has been suspended.</p><p><strong>Reason:</strong> ${reason || 'Policy violation or non-payment'}</p><p>Please contact support@fleetanchor.com to resolve this.</p>`,
       });
     }
     await logAction(req, 'VENDOR_SUSPENDED', 'Vendor', req.params.id, { reason });
