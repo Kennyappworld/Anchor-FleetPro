@@ -67,8 +67,18 @@ exports.stats = async (req, res, next) => {
 
 exports.create = async (req, res, next) => {
   try {
-    const { companyName, contactEmail, contactPhone, oemId, address, contactPerson, plan } = req.body;
+    const { companyName, contactEmail, contactPhone, address, contactPerson, plan } = req.body;
     const email = contactEmail || req.body.email;
+
+    // Resolve oemId — Super Admin may not have one, so pick the first OEM
+    let oemId = req.body.oemId || req.user.oemId;
+    if (!oemId) {
+      const firstOem = await prisma.oemCompany.findFirst({ orderBy: { createdAt: 'asc' } });
+      if (!firstOem) return res.status(400).json({ success: false, error: 'No OEM company found. Create an OEM first.' });
+      oemId = firstOem.id;
+    }
+
+    if (!email) return res.status(400).json({ success: false, error: 'Fleet email address is required' });
 
     // Generate invite token + trial
     const inviteToken = crypto.randomBytes(32).toString('hex');
