@@ -65,6 +65,8 @@ export const jobService = {
   getOne: (id) => api.get(`/jobs/${id}`),
   create: (data) => api.post("/jobs", data),
   updateStatus: (id, data) => api.patch(`/jobs/${id}/status`, data),
+  approveEstimate: (id) => api.patch(`/jobs/${id}/status`, { status: 'ESTIMATE_APPROVED' }),
+  queryEstimate: (id, note) => api.patch(`/jobs/${id}/status`, { status: 'ESTIMATE_QUERIED', note }),
 };
 
 export const vehicleService = {
