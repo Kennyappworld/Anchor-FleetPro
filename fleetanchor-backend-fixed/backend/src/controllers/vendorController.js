@@ -70,6 +70,13 @@ exports.create = async (req, res, next) => {
     const { companyName, contactEmail, contactPhone, address, contactPerson, plan } = req.body;
     const email = contactEmail || req.body.email;
 
+    if (!companyName || !companyName.trim()) {
+      return res.status(400).json({ success: false, error: 'Company name is required' });
+    }
+    if (!email || !email.trim()) {
+      return res.status(400).json({ success: false, error: 'Fleet email address is required' });
+    }
+
     // Resolve oemId — Super Admin may not have one, so pick the first OEM
     let oemId = req.body.oemId || req.user.oemId;
     if (!oemId) {
@@ -77,8 +84,6 @@ exports.create = async (req, res, next) => {
       if (!firstOem) return res.status(400).json({ success: false, error: 'No OEM company found. Create an OEM first.' });
       oemId = firstOem.id;
     }
-
-    if (!email) return res.status(400).json({ success: false, error: 'Fleet email address is required' });
 
     // Generate invite token + trial
     const inviteToken = crypto.randomBytes(32).toString('hex');

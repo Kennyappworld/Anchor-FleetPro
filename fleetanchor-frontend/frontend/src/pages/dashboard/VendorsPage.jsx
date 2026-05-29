@@ -152,7 +152,9 @@ export default function VendorsPage() {
       setForm(EMPTY_FORM);
       toast.success(`${form.name} added! Login details sent to ${form.email}.`);
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Failed to add vendor');
+      const errData = err.response?.data;
+      const msg = errData?.details?.map(d => `${d.field}: ${d.message}`).join(', ') || errData?.error || 'Failed to add vendor';
+      toast.error(msg);
     } finally { setSaving(false); }
   };
 
