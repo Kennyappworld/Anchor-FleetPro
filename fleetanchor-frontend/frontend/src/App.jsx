@@ -5,6 +5,7 @@ import { useAuthStore } from './context/authStore';
 import { PageLoader } from './components/shared/Skeleton';
 
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'));
+const ApproveResetPage = lazy(() => import('./pages/auth/ApproveResetPage'));
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'));
 const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage'));
 const VendorSetupPage = lazy(() => import('./pages/auth/VendorSetupPage'));
@@ -85,7 +86,8 @@ export default function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/auth/approve-reset/:token" element={<ApproveResetPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/vendor/setup" element={<VendorSetupPage />} />
           <Route path="/driver/signup" element={<DriverSignupPage />} />

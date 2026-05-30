@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Eye, EyeOff, Lock, Mail, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { PoweredBy } from './ForgotPasswordPage';
 import { useAuthStore } from '../../context/authStore';
 
 export default function LoginPage() {
@@ -153,6 +154,7 @@ export default function LoginPage() {
           <p className="text-[10px] text-[var(--text3)]">Protected by 2FA, rate limiting, and end-to-end encryption</p>
         </div>
       </div>
+      <PoweredBy />
     </div>
   );
 }

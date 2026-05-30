@@ -100,4 +100,23 @@ router.post('/change-password',
   authController.changePassword
 );
 
+// ─── Approval-based reset ─────────────────────────────────────────────────────
+router.post('/request-reset',
+  resetLimiter,
+  body('email').isEmail().normalizeEmail(),
+  body('newPassword').isLength({ min: 8 }),
+  validate,
+  authController.requestPasswordReset
+);
+router.get('/approve-reset/:token', authController.reviewPasswordReset);
+
+// ─── Manager issues credentials ───────────────────────────────────────────────
+router.post('/issue-credentials',
+  authenticate,
+  body('userId').notEmpty(),
+  body('newPassword').optional().isLength({ min: 8 }),
+  validate,
+  authController.issueCredentials
+);
+
 module.exports = router;

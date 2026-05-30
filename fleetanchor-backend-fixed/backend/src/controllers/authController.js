@@ -460,3 +460,250 @@ exports.changePassword = async (req, res) => {
     res.status(500).json({ success: false, error: 'Server error' });
   }
 };
+
+// ─── REQUEST PASSWORD RESET (approval flow) ───────────────────────────────────
+// User fills in email + new password → goes to their manager for approval
+exports.requestPasswordReset = async (req, res) => {
+  try {
+    const { email, newPassword, fullName } = req.body;
+
+    if (!email || !newPassword) {
+      return res.status(400).json({ success: false, error: 'Email and new password are required' });
+    }
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, error: 'New password must be at least 8 characters' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        vendor: {
+          include: {
+            users: {
+              where: {
+                role: { in: ['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR', 'SUPER_ADMIN', 'OEM_ADMIN'] },
+                active: true,
+                NOT: { email },
+              },
+              take: 2,
+              select: { email: true, fullName: true, role: true },
+            },
+          },
+        },
+      },
+    });
+
+    // Always return success to prevent user enumeration
+    const success = { success: true, message: 'Reset request submitted. Your manager will review and approve it.' };
+    if (!user || !user.active) return res.json(success);
+
+    // Find approver (next higher authority)
+    const approvers = user.vendor?.users || [];
+    const approverEmails = approvers.map(a => a.email);
+
+    // For Super Admin / OEM — approve themselves via email link
+    if (['SUPER_ADMIN', 'OEM_ADMIN'].includes(user.role) || approvers.length === 0) {
+      // Fall back to standard OTP flow
+      return res.json({ success: true, message: 'Use the standard email OTP reset instead.', useOtp: true });
+    }
+
+    // Hash the new password now — only applied after approval
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Expire any existing pending requests for this user
+    await prisma.passwordResetRequest.updateMany({
+      where: { userId: user.id, status: 'PENDING' },
+      data: { status: 'EXPIRED' },
+    });
+
+    const resetReq = await prisma.passwordResetRequest.create({
+      data: {
+        userId: user.id,
+        vendorId: user.vendorId || null,
+        fullName: user.fullName || fullName || email,
+        email,
+        newPasswordHash,
+        token,
+        expiresAt,
+      },
+    });
+
+    // Send approval email to each approver
+    const { sendEmail } = require('../services/emailService');
+    const frontendUrl = process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app';
+
+    for (const approver of approvers) {
+      await sendEmail({
+        to: approver.email,
+        subject: `🔑 Password Reset Request — ${user.fullName || email} needs approval`,
+        html: `
+        <!DOCTYPE html><html><body style="margin:0;padding:0;background:#F0F4F8;font-family:'Segoe UI',Arial,sans-serif">
+        <div style="max-width:600px;margin:0 auto;padding:24px 16px">
+          <div style="background:#0A1628;border-radius:12px 12px 0 0;padding:24px 28px;text-align:center">
+            <div style="font-size:22px;font-weight:800;color:#F5A623">⚓ FleetAnchor Pro</div>
+            <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:2.5px">PASSWORD RESET APPROVAL</div>
+          </div>
+          <div style="background:#fff;border-radius:0 0 12px 12px;padding:28px;box-shadow:0 4px 16px rgba(0,0,0,.10)">
+            <p style="font-size:14px;color:#333;margin:0 0 6px">Dear ${approver.fullName},</p>
+            <p style="font-size:13px;color:#666;margin:0 0 20px;line-height:1.6">
+              <strong>${user.fullName || email}</strong> has requested a password reset and needs your approval.
+              If you recognise this person and the request is legitimate, click the button below.
+            </p>
+            <div style="background:#F0F4F8;border-radius:10px;padding:16px;margin-bottom:20px">
+              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Requested by:</strong> ${user.fullName || email}</p>
+              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Email:</strong> ${email}</p>
+              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Role:</strong> ${user.role}</p>
+              <p style="font-size:12px;color:#444;margin:0"><strong>Requested at:</strong> ${new Date().toLocaleString('en-NG')}</p>
+            </div>
+            <div style="text-align:center;margin-bottom:12px">
+              <a href="${frontendUrl}/auth/approve-reset/${token}?action=approve"
+                 style="background:#22C55E;color:#fff;font-weight:700;padding:13px 28px;border-radius:9px;text-decoration:none;font-size:14px;display:inline-block;margin-right:10px">
+                ✅ Approve Reset
+              </a>
+              <a href="${frontendUrl}/auth/approve-reset/${token}?action=reject"
+                 style="background:#E84B4B;color:#fff;font-weight:700;padding:13px 28px;border-radius:9px;text-decoration:none;font-size:14px;display:inline-block">
+                ❌ Reject
+              </a>
+            </div>
+            <p style="font-size:11px;color:#aaa;text-align:center;margin:0">
+              This approval link expires in 24 hours. If you do not recognise this request, reject it immediately.
+            </p>
+          </div>
+        </div></body></html>`,
+      }).catch(() => {});
+    }
+
+    await auditService.log({ userId: user.id, action: 'PASSWORD_RESET_REQUESTED', entityType: 'user', entityId: user.id, ipAddress: req.ip, actorLabel: email });
+
+    return res.json(success);
+  } catch (err) {
+    logger.error('requestPasswordReset error:', err.message);
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
+
+// ─── APPROVE / REJECT RESET REQUEST ──────────────────────────────────────────
+exports.reviewPasswordReset = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { action } = req.query; // 'approve' or 'reject'
+
+    const resetReq = await prisma.passwordResetRequest.findUnique({ where: { token }, include: { user: true } });
+
+    if (!resetReq) return res.status(404).json({ success: false, error: 'Reset request not found or already processed' });
+    if (resetReq.status !== 'PENDING') return res.status(400).json({ success: false, error: `Request already ${resetReq.status.toLowerCase()}` });
+    if (new Date() > resetReq.expiresAt) {
+      await prisma.passwordResetRequest.update({ where: { token }, data: { status: 'EXPIRED' } });
+      return res.status(410).json({ success: false, error: 'Reset request has expired' });
+    }
+
+    if (action === 'approve') {
+      // Apply the pre-hashed password
+      await prisma.user.update({
+        where: { id: resetReq.userId },
+        data: { passwordHash: resetReq.newPasswordHash, lastPasswordChange: new Date() },
+      });
+      await prisma.passwordResetRequest.update({
+        where: { token },
+        data: { status: 'APPROVED', reviewedAt: new Date() },
+      });
+
+      // Notify the user their reset was approved
+      const { sendEmail } = require('../services/emailService');
+      await sendEmail({
+        to: resetReq.email,
+        subject: '✅ Your password reset has been approved — FleetAnchor Pro',
+        html: `<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0A1628;border-radius:12px;color:#fff">
+          <h2 style="color:#F5A623;text-align:center">⚓ FleetAnchor Pro</h2>
+          <p style="color:#94a3b8;text-align:center">Your password reset has been <strong style="color:#22C55E">approved</strong>.</p>
+          <p style="color:#94a3b8;text-align:center">You can now log in with your new password.</p>
+          <div style="text-align:center;margin-top:24px">
+            <a href="${process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app'}/login"
+               style="background:#F5A623;color:#000;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none">
+              Sign In Now
+            </a>
+          </div>
+        </div>`,
+      }).catch(() => {});
+
+      await auditService.log({ userId: resetReq.userId, action: 'PASSWORD_RESET_APPROVED', entityType: 'user', entityId: resetReq.userId, ipAddress: req.ip, actorLabel: 'manager' });
+
+      return res.json({ success: true, action: 'approved', message: 'Password reset approved. User can now login with their new password.' });
+    } else {
+      await prisma.passwordResetRequest.update({ where: { token }, data: { status: 'REJECTED', reviewedAt: new Date() } });
+      await auditService.log({ userId: resetReq.userId, action: 'PASSWORD_RESET_REJECTED', entityType: 'user', entityId: resetReq.userId, ipAddress: req.ip, actorLabel: 'manager' });
+      return res.json({ success: true, action: 'rejected', message: 'Reset request rejected.' });
+    }
+  } catch (err) {
+    logger.error('reviewPasswordReset error:', err.message);
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
+
+// ─── MANAGER ISSUES NEW CREDENTIALS ──────────────────────────────────────────
+exports.issueCredentials = async (req, res) => {
+  try {
+    const { userId, newPassword } = req.body;
+    const caller = req.user;
+
+    const target = await prisma.user.findUnique({ where: { id: userId } });
+    if (!target) return res.status(404).json({ success: false, error: 'User not found' });
+
+    // Permission: only higher roles can reset
+    const hierarchy = ['DRIVER', 'FIELD_AGENT', 'MAINTENANCE_SUPERVISOR', 'FLEET_MANAGER', 'OEM_ADMIN', 'WORKSHOP_STAFF', 'SUPER_ADMIN'];
+    const callerLevel = hierarchy.indexOf(caller.role);
+    const targetLevel = hierarchy.indexOf(target.role);
+    if (callerLevel <= targetLevel) return res.status(403).json({ success: false, error: 'Insufficient authority to reset this user\'s password' });
+
+    // Tenant check — fleet manager can only reset their own vendor's users
+    if (caller.role === 'FLEET_MANAGER' && target.vendorId !== caller.vendorId) {
+      return res.status(403).json({ success: false, error: 'Cannot reset password for user outside your fleet' });
+    }
+
+    const pw = newPassword || generateTempPassword();
+    const passwordHash = await bcrypt.hash(pw, 12);
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash, mustChangePassword: true, lastPasswordChange: new Date() },
+    });
+
+    // Email new credentials
+    const { sendEmail } = require('../services/emailService');
+    await sendEmail({
+      to: target.email,
+      subject: '🔑 Your FleetAnchor Pro login credentials have been reset',
+      html: `<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0A1628;border-radius:12px;color:#fff">
+        <h2 style="color:#F5A623;text-align:center">⚓ FleetAnchor Pro</h2>
+        <p style="color:#94a3b8">Your login credentials have been reset by your manager.</p>
+        <div style="background:#0F2040;border-radius:8px;padding:16px;margin:16px 0">
+          <p style="color:#94a3b8;font-size:13px;margin:0 0 8px">Email: <strong style="color:#fff">${target.email}</strong></p>
+          <p style="color:#94a3b8;font-size:13px;margin:0">Temp password: <strong style="color:#F5A623;font-family:monospace">${pw}</strong></p>
+        </div>
+        <p style="color:#94a3b8;font-size:12px">You will be required to change this password on first login.</p>
+        <div style="text-align:center;margin-top:20px">
+          <a href="${process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app'}/login"
+             style="background:#F5A623;color:#000;font-weight:700;padding:12px 24px;border-radius:8px;text-decoration:none">
+            Sign In Now →
+          </a>
+        </div>
+      </div>`,
+    }).catch(() => {});
+
+    await auditService.log({ userId: caller.userId, action: 'CREDENTIALS_ISSUED', entityType: 'user', entityId: userId, ipAddress: req.ip, actorLabel: caller.email });
+
+    res.json({ success: true, message: `New credentials sent to ${target.email}`, tempPassword: pw });
+  } catch (err) {
+    logger.error('issueCredentials error:', err.message);
+    res.status(500).json({ success: false, error: 'Server error' });
+  }
+};
+
+function generateTempPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!';
+  let pw = '';
+  for (let i = 0; i < 10; i++) pw += chars[Math.floor(Math.random() * chars.length)];
+  return pw + Math.floor(Math.random() * 9000 + 1000);
+}

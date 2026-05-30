@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Wrench, Scan, Truck, History, Receipt, Users, CreditCard, LogOut, MessageCircle, Menu, X, Bell, ChevronRight, ShieldCheck, UserCheck } from 'lucide-react';
+import { PoweredBy } from '../../pages/auth/ForgotPasswordPage';
 import { useAuthStore } from '../../context/authStore';
 import ChangePasswordModal from './ChangePasswordModal';
 import toast from 'react-hot-toast';

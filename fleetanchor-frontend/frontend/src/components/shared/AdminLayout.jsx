@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Wrench, Car, Building2, Receipt, BarChart2, Scan, CreditCard, Shield, Settings, Bell, LogOut, ChevronDown, Hammer, Menu, X } from 'lucide-react';
+import { PoweredBy } from '../../pages/auth/ForgotPasswordPage';
 import { useAuthStore } from '../../context/authStore';
 import toast from 'react-hot-toast';
 

@@ -113,6 +113,7 @@ model User {
   lastLoginAt     DateTime?
   lastLoginIp     String?
   lastPasswordChange DateTime?
+  resetRequests PasswordResetRequest[]
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   jobRequests     JobRequest[]
@@ -685,4 +686,33 @@ model DriverScore {
   @@unique([driverId, month, year])
   @@index([vendorId])
   @@map("driver_scores")
+}
+
+// ─── PASSWORD RESET REQUESTS (approval-based flow) ────────────────────────────
+model PasswordResetRequest {
+  id           String              @id @default(uuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendorId     String?
+  fullName     String
+  email        String
+  newPasswordHash String           // pre-hashed, applied only after approval
+  status       ResetRequestStatus  @default(PENDING)
+  requestedAt  DateTime            @default(now())
+  reviewedAt   DateTime?
+  reviewedBy   String?
+  reviewNote   String?
+  expiresAt    DateTime            // 24 hours
+  token        String              @unique // secure token for approval link
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("password_reset_requests")
+}
+
+enum ResetRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
 }
