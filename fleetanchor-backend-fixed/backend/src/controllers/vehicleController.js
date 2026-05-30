@@ -181,7 +181,6 @@ exports.bulkImport = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─── SERVICE SCHEDULE ─────────────────────────────────────────────────────────
 exports.updateServiceSchedule = async (req, res, next) => {
   try {
     const {

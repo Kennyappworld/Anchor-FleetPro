@@ -27,7 +27,7 @@ router.post('/paystack', async (req, res) => {
   try {
     switch (event.event) {
 
-      // ── Successful payment (one-time or recurring charge) ─────────────────
+      
       case 'charge.success': {
         const data = event.data;
         const email = data.customer?.email;
@@ -41,7 +41,7 @@ router.post('/paystack', async (req, res) => {
         // Check if this is a subscription payment (has metadata) or invoice payment
         const meta = data.metadata || {};
 
-        // ── Invoice payment ────────────────────────────────────────────────
+        
         const invoice = await prisma.invoice.findFirst({ where: { paystackRef: ref } });
         if (invoice) {
           await prisma.invoice.update({
@@ -52,7 +52,7 @@ router.post('/paystack', async (req, res) => {
           break;
         }
 
-        // ── Subscription payment ───────────────────────────────────────────
+        
         const vendor = await prisma.vendor.findFirst({
           where: {
             OR: [
@@ -94,7 +94,7 @@ router.post('/paystack', async (req, res) => {
         break;
       }
 
-      // ── Subscription auto-renewed by Paystack ──────────────────────────
+      
       case 'subscription.create':
       case 'invoice.payment_failed': {
         if (event.event === 'invoice.payment_failed') {
@@ -115,7 +115,7 @@ router.post('/paystack', async (req, res) => {
         break;
       }
 
-      // ── Subscription disabled / cancelled ──────────────────────────────
+      
       case 'subscription.disable': {
         const subCode = event.data.subscription_code;
         const sub = await prisma.subscription.findFirst({ where: { paystackSubCode: subCode } });

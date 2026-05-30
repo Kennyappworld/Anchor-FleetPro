@@ -12,7 +12,7 @@ async function generateMonthlyReport(vendor, month, year) {
   const prevEnd   = new Date(year, month - 1, 0, 23, 59, 59);
   const monthName = start.toLocaleString('en-NG', { month: 'long' });
 
-  // ── Fetch all jobs this month ───────────────────────────────────────────────
+  
   const [jobs, prevJobs, vehicles, invoices, prevInvoices] = await Promise.all([
     prisma.jobRequest.findMany({
       where: {
@@ -41,7 +41,7 @@ async function generateMonthlyReport(vendor, month, year) {
     }),
   ]);
 
-  // ── Core metrics ────────────────────────────────────────────────────────────
+  
   const totalJobs       = jobs.length;
   const completedJobs   = jobs.filter(j => j.status === 'CLOSED' || j.status === 'COMPLETED').length;
   const pendingJobs     = jobs.filter(j => ['SUBMITTED','DIAGNOSED','ESTIMATE_SENT','APPROVED','IN_PROGRESS'].includes(j.status)).length;
@@ -56,7 +56,7 @@ async function generateMonthlyReport(vendor, month, year) {
   const prevAvgCost     = prevJobs.filter(j => j.status === 'CLOSED').length > 0
     ? prevTotalCost / prevJobs.filter(j => j.status === 'CLOSED').length : 0;
 
-  // ── Turnaround time (days from submitted → completed) ───────────────────────
+  
   const turnarounds = jobs
     .filter(j => j.completedAt && j.submittedAt)
     .map(j => (new Date(j.completedAt) - new Date(j.submittedAt)) / (1000 * 60 * 60 * 24));
@@ -65,12 +65,12 @@ async function generateMonthlyReport(vendor, month, year) {
   const maxTurnaround   = turnarounds.length > 0 ? Math.max(...turnarounds).toFixed(1) : 'N/A';
   const minTurnaround   = turnarounds.length > 0 ? Math.min(...turnarounds).toFixed(1) : 'N/A';
 
-  // ── Downtime (vehicles with jobs this month) ─────────────────────────────────
+  
   const vehiclesWithJobs = new Set(jobs.map(j => j.vehicleId)).size;
   const fleetSize        = vehicles.length;
   const fleetUtilization = fleetSize > 0 ? ((vehiclesWithJobs / fleetSize) * 100).toFixed(0) : 0;
 
-  // ── Category breakdown ───────────────────────────────────────────────────────
+  
   const categoryMap = {};
   jobs.forEach(j => {
     categoryMap[j.category] = (categoryMap[j.category] || 0) + 1;
@@ -79,12 +79,12 @@ async function generateMonthlyReport(vendor, month, year) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
 
-  // ── Priority breakdown ───────────────────────────────────────────────────────
+  
   const criticalJobs  = jobs.filter(j => j.priority === 'CRITICAL').length;
   const highJobs      = jobs.filter(j => j.priority === 'HIGH').length;
   const normalJobs    = jobs.filter(j => j.priority === 'NORMAL').length;
 
-  // ── Most serviced vehicles ───────────────────────────────────────────────────
+  
   const vehicleJobMap = {};
   jobs.forEach(j => {
     const key = j.vehicleId;
@@ -96,13 +96,13 @@ async function generateMonthlyReport(vendor, month, year) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 5);
 
-  // ── MoM comparison ───────────────────────────────────────────────────────────
+  
   const jobsDelta   = totalJobs - prevJobs.length;
   const costDelta   = totalCost - prevTotalCost;
   const jobsTrend   = jobsDelta > 0 ? `▲ ${jobsDelta} more` : jobsDelta < 0 ? `▼ ${Math.abs(jobsDelta)} fewer` : '→ Same';
   const costTrend   = costDelta > 0 ? `▲ ₦${fmt(costDelta)} more` : costDelta < 0 ? `▼ ₦${fmt(Math.abs(costDelta))} less` : '→ No change';
 
-  // ── Cost projection ───────────────────────────────────────────────────────────
+  
   const last3MonthsAvg = prevTotalCost > 0 ? ((totalCost + prevTotalCost) / 2) : totalCost;
   const projectedAnnual = (last3MonthsAvg * 12);
 

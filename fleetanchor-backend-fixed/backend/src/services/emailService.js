@@ -95,10 +95,8 @@ const send = async ({ to, subject, html }) => {
   }
 };
 
-// ─── GENERIC SEND ─────────────────────────────────────────────────────────────
 exports.sendEmail = ({ to, subject, html }) => send({ to, subject, html });
 
-// ─── PASSWORD RESET ───────────────────────────────────────────────────────────
 exports.sendPasswordReset = ({ to, name, otp }) => send({
   to,
   subject: 'FleetAnchor Pro — Password Reset Code',
@@ -113,7 +111,6 @@ exports.sendPasswordReset = ({ to, name, otp }) => send({
   `),
 });
 
-// ─── WELCOME EMAIL ────────────────────────────────────────────────────────────
 exports.sendWelcome = ({ to, name, role, tempPassword }) => send({
   to,
   subject: 'Welcome to FleetAnchor Pro — Your account is ready',
@@ -130,7 +127,6 @@ exports.sendWelcome = ({ to, name, role, tempPassword }) => send({
   `),
 });
 
-// ─── JOB SUBMITTED ────────────────────────────────────────────────────────────
 exports.sendJobSubmittedNotification = async ({ job }) => {
   
   const staff = await prisma.user.findMany({ where: { oemId: job.vehicle?.vendor?.oemId, role: { in: ['OEM_ADMIN', 'WORKSHOP_STAFF'] }, active: true } });
@@ -150,7 +146,6 @@ exports.sendJobSubmittedNotification = async ({ job }) => {
   }
 };
 
-// ─── ESTIMATE READY ───────────────────────────────────────────────────────────
 exports.sendEstimateReady = async ({ job, vendorEmails }) => {
   for (const email of vendorEmails) {
     await send({
@@ -165,7 +160,6 @@ exports.sendEstimateReady = async ({ job, vendorEmails }) => {
   }
 };
 
-// ─── REPAIR COMPLETE ──────────────────────────────────────────────────────────
 exports.sendRepairComplete = async ({ job, vendorEmails }) => {
   for (const email of vendorEmails) {
     await send({
@@ -183,7 +177,6 @@ exports.sendRepairComplete = async ({ job, vendorEmails }) => {
   }
 };
 
-// ─── SUBSCRIPTION EXPIRY WARNING ─────────────────────────────────────────────
 exports.sendSubscriptionExpiry = async ({ to, name, daysLeft, plan }) => send({
   to,
   subject: `FleetAnchor Pro — Subscription expires in ${daysLeft} days`,
@@ -195,7 +188,6 @@ exports.sendSubscriptionExpiry = async ({ to, name, daysLeft, plan }) => send({
   `),
 });
 
-// ─── ACCOUNT SUSPENDED ────────────────────────────────────────────────────────
 exports.sendAccountSuspended = async ({ to, name, reason }) => send({
   to,
   subject: 'FleetAnchor Pro — Account Suspended',

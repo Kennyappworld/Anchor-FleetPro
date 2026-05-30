@@ -9,7 +9,6 @@ import * as XLSX from 'xlsx';
 import { complianceService, vehicleService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
 const DOC_TYPES = [
   { value: 'ROAD_WORTHINESS',    label: 'Road Worthiness Certificate' },
   { value: 'VEHICLE_LICENCE',    label: 'Vehicle Licence' },
@@ -37,7 +36,6 @@ function getStatus(daysLeft) {
   return { label: 'Valid',    cls: 'bg-green-500/20 text-green-400',  icon: '✅', sort: 4 };
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────────
 export default function VendorCompliancePage() {
   const { user } = useAuthStore();
   const fileRef = useRef(null);
@@ -89,7 +87,7 @@ export default function VendorCompliancePage() {
     } finally { setLoading(false); }
   };
 
-  // ─── Filter & Search ───────────────────────────────────────────────────────
+  
   const filtered = docs.filter(d => {
     const q = search.toLowerCase();
     const matchSearch = !q ||
@@ -110,7 +108,7 @@ export default function VendorCompliancePage() {
     return sa.sort !== sb.sort ? sa.sort - sb.sort : a.daysUntilExpiry - b.daysUntilExpiry;
   });
 
-  // ─── Add Document ──────────────────────────────────────────────────────────
+  
   const handleAdd = async () => {
     if (!addForm.vehicleId || !addForm.docType || !addForm.expiryDate) {
       toast.error('Vehicle, document type and expiry date are required');
@@ -128,7 +126,7 @@ export default function VendorCompliancePage() {
     } finally { setAddLoading(false); }
   };
 
-  // ─── Edit Document ─────────────────────────────────────────────────────────
+  
   const openEdit = (doc) => {
     setEditDoc(doc);
     setEditForm({
@@ -153,7 +151,7 @@ export default function VendorCompliancePage() {
     } finally { setEditLoading(false); }
   };
 
-  // ─── Delete ────────────────────────────────────────────────────────────────
+  
   const handleDelete = async () => {
     setDeleteLoading(true);
     try {
@@ -166,7 +164,7 @@ export default function VendorCompliancePage() {
     } finally { setDeleteLoading(false); }
   };
 
-  // ─── Excel Import ──────────────────────────────────────────────────────────
+  
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -217,7 +215,7 @@ export default function VendorCompliancePage() {
     XLSX.writeFile(wb, 'compliance-import-template.xlsx');
   };
 
-  // ─── Render ────────────────────────────────────────────────────────────────
+  
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-[1400px] mx-auto">
 

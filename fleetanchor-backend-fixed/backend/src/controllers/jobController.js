@@ -1,6 +1,5 @@
 const prisma = require('../config/prisma');
 
-// ─── CREATE JOB REQUEST ───────────────────────────────────────────────────────
 exports.create = async (req, res) => {
   try {
     const { vehicleId, category, description, priority } = req.body;
@@ -45,7 +44,6 @@ exports.create = async (req, res) => {
   }
 };
 
-// ─── LIST JOBS ────────────────────────────────────────────────────────────────
 exports.list = async (req, res) => {
   try {
     const { status, vehicleId, vendorId, page = 1, limit = 20, search } = req.query;
@@ -94,7 +92,6 @@ exports.list = async (req, res) => {
   }
 };
 
-// ─── GET SINGLE JOB ───────────────────────────────────────────────────────────
 exports.get = async (req, res) => {
   try {
     const job = await prisma.jobRequest.findUnique({
@@ -115,7 +112,6 @@ exports.get = async (req, res) => {
   }
 };
 
-// ─── UPDATE JOB STATUS ────────────────────────────────────────────────────────
 exports.updateStatus = async (req, res) => {
   try {
     const { status, note, bayNumber, technicianId } = req.body;
@@ -165,7 +161,6 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
-// ─── APPROVE / QUERY ESTIMATE ─────────────────────────────────────────────────
 exports.respondToEstimate = async (req, res) => {
   try {
     const { action, queryNote } = req.body; // action: 'approve' | 'query'
@@ -192,7 +187,6 @@ exports.respondToEstimate = async (req, res) => {
   }
 };
 
-// ─── VEHICLE MAINTENANCE HISTORY ─────────────────────────────────────────────
 exports.vehicleHistory = async (req, res) => {
   try {
     const { vin, plateNumber } = req.query;

@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
 
-// ─── AUTHENTICATE ─────────────────────────────────────────────────────────────
 exports.authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -37,7 +36,6 @@ exports.authenticate = async (req, res, next) => {
   }
 };
 
-// ─── REQUIRE ROLES ────────────────────────────────────────────────────────────
 exports.requireRole = (...roles) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ success: false, error: 'Unauthenticated' });
   // Flatten in case caller passes an array: requireRole(['A','B']) or requireRole('A','B')
@@ -48,7 +46,6 @@ exports.requireRole = (...roles) => (req, res, next) => {
   next();
 };
 
-// ─── REQUIRE ACTIVE SUBSCRIPTION ─────────────────────────────────────────────
 exports.requireActiveSubscription = async (req, res, next) => {
   try {
     if (!req.user.vendorId) return next(); // OEM/admin roles pass through
@@ -65,7 +62,6 @@ exports.requireActiveSubscription = async (req, res, next) => {
   }
 };
 
-// ─── REQUIRE EXPORT PERMISSION (Growth+ or higher) ───────────────────────────
 exports.requireExportPermission = async (req, res, next) => {
   try {
     if (['SUPER_ADMIN', 'OEM_ADMIN', 'WORKSHOP_STAFF'].includes(req.user.role)) return next();
@@ -82,7 +78,6 @@ exports.requireExportPermission = async (req, res, next) => {
   }
 };
 
-// ─── TENANT ISOLATION ─────────────────────────────────────────────────────────
 // Ensures vendors can only see their own data, OEM sees their vendors' data
 exports.scopeToTenant = (req, res, next) => {
   if (req.user.role === 'SUPER_ADMIN') {

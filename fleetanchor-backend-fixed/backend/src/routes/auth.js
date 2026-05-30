@@ -6,7 +6,6 @@ const authController = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 
-// ─── Auth-specific rate limiters ─────────────────────────────────────────────
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: parseInt(process.env.AUTH_RATE_LIMIT_MAX) || 10,
@@ -21,7 +20,6 @@ const resetLimiter = rateLimit({
   keyGenerator: (req) => req.body.email || req.ip,
 });
 
-// ─── Validation rules ─────────────────────────────────────────────────────────
 const loginRules = [
   body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
   body('password').notEmpty().withMessage('Password required'),
@@ -62,26 +60,21 @@ const registerRules = [
   body('role').isIn(['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR', 'FIELD_AGENT']),
 ];
 
-// ─── Routes ──────────────────────────────────────────────────────────────────
 router.post('/login', authLimiter, loginRules, validate, authController.login);
 router.post('/logout', authenticate, authController.logout);
 router.post('/refresh', authController.refreshToken);
 router.post('/me', authenticate, authController.me);
 
-// ─── Password Reset Flow ──────────────────────────────────────────────────────
 router.post('/forgot-password', resetLimiter, forgotRules, validate, authController.forgotPassword);
 router.post('/verify-otp', authLimiter, verifyOtpRules, validate, authController.verifyOtp);
 router.post('/reset-password', authLimiter, resetRules, validate, authController.resetPassword);
 
-// ─── 2FA ─────────────────────────────────────────────────────────────────────
 router.post('/2fa/setup', authenticate, authController.setup2FA);
 router.post('/2fa/verify', authenticate, authController.verify2FA);
 router.post('/2fa/disable', authenticate, authController.disable2FA);
 
-// ─── Register (admin creates user / vendor registers field agent) ─────────────
 router.post('/register', authenticate, registerRules, validate, authController.register);
 
-// ─── Vendor Invite / Setup ────────────────────────────────────────────────────
 router.get('/vendor-invite/:token', authController.checkVendorInvite);
 router.post('/vendor-setup',
   body('token').notEmpty(),
@@ -100,7 +93,6 @@ router.post('/change-password',
   authController.changePassword
 );
 
-// ─── Approval-based reset ─────────────────────────────────────────────────────
 router.post('/request-reset',
   resetLimiter,
   body('email').isEmail().normalizeEmail(),
@@ -110,7 +102,6 @@ router.post('/request-reset',
 );
 router.get('/approve-reset/:token', authController.reviewPasswordReset);
 
-// ─── Manager issues credentials ───────────────────────────────────────────────
 router.post('/issue-credentials',
   authenticate,
   body('userId').notEmpty(),

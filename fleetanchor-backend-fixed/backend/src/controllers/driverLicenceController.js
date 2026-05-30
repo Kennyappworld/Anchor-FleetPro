@@ -1,7 +1,6 @@
 const prisma = require('../config/prisma');
 const logger = require('../config/logger');
 
-// ─── LIST ──────────────────────────────────────────────────────────────────────
 exports.list = async (req, res) => {
   try {
     const vendorId = req.user.vendorId || req.query.vendorId;
@@ -25,7 +24,6 @@ exports.list = async (req, res) => {
   }
 };
 
-// ─── ADD ───────────────────────────────────────────────────────────────────────
 exports.add = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -60,7 +58,6 @@ exports.add = async (req, res) => {
   }
 };
 
-// ─── UPDATE ────────────────────────────────────────────────────────────────────
 exports.update = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -94,7 +91,6 @@ exports.update = async (req, res) => {
   }
 };
 
-// ─── DELETE ────────────────────────────────────────────────────────────────────
 exports.remove = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -108,7 +104,6 @@ exports.remove = async (req, res) => {
   }
 };
 
-// ─── BULK IMPORT ───────────────────────────────────────────────────────────────
 exports.bulkImport = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -152,7 +147,6 @@ exports.bulkImport = async (req, res) => {
   }
 };
 
-// ─── SUMMARY ───────────────────────────────────────────────────────────────────
 exports.summary = async (req, res) => {
   try {
     const vendorId = req.user.vendorId || req.params.vendorId;

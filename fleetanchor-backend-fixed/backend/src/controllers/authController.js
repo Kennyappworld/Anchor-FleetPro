@@ -4,7 +4,6 @@ const { totp } = require('otplib');
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 
-// ─── Token helpers ────────────────────────────────────────────────────────────
 const signAccess = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
 
@@ -14,7 +13,6 @@ const signRefresh = (payload) =>
 const hashToken = (token) =>
   crypto.createHash('sha256').update(token).digest('hex');
 
-// ─── LOGIN ────────────────────────────────────────────────────────────────────
 exports.login = async (req, res) => {
   try {
     const { email, password, totpCode } = req.body;
@@ -100,7 +98,6 @@ exports.login = async (req, res) => {
   }
 };
 
-// ─── REFRESH TOKEN ────────────────────────────────────────────────────────────
 exports.refreshToken = async (req, res) => {
   try {
     const { refreshToken } = req.body;
@@ -140,7 +137,6 @@ exports.refreshToken = async (req, res) => {
   }
 };
 
-// ─── ME ───────────────────────────────────────────────────────────────────────
 exports.me = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -154,13 +150,11 @@ exports.me = async (req, res) => {
   }
 };
 
-// ─── LOGOUT ───────────────────────────────────────────────────────────────────
 exports.logout = async (req, res) => {
   await auditService.log({ userId: req.user.userId, action: 'LOGOUT', entityType: 'user', entityId: req.user.userId, ipAddress: req.ip, actorLabel: req.user.email });
   return res.json({ success: true, message: 'Logged out successfully' });
 };
 
-// ─── FORGOT PASSWORD ──────────────────────────────────────────────────────────
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
@@ -205,7 +199,6 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
-// ─── VERIFY OTP ───────────────────────────────────────────────────────────────
 exports.verifyOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -237,7 +230,6 @@ exports.verifyOtp = async (req, res) => {
   }
 };
 
-// ─── RESET PASSWORD ───────────────────────────────────────────────────────────
 exports.resetPassword = async (req, res) => {
   try {
     const { verifiedToken, password } = req.body;
@@ -277,7 +269,6 @@ exports.resetPassword = async (req, res) => {
   }
 };
 
-// ─── SETUP 2FA ────────────────────────────────────────────────────────────────
 exports.setup2FA = async (req, res) => {
   try {
     const secret = totp.generateSecret();
@@ -291,7 +282,6 @@ exports.setup2FA = async (req, res) => {
   }
 };
 
-// ─── VERIFY 2FA ───────────────────────────────────────────────────────────────
 exports.verify2FA = async (req, res) => {
   try {
     const { code } = req.body;
@@ -306,7 +296,6 @@ exports.verify2FA = async (req, res) => {
   }
 };
 
-// ─── DISABLE 2FA ──────────────────────────────────────────────────────────────
 exports.disable2FA = async (req, res) => {
   try {
     await prisma.user.update({ where: { id: req.user.userId }, data: { totpEnabled: false, totpSecret: null } });
@@ -317,7 +306,6 @@ exports.disable2FA = async (req, res) => {
   }
 };
 
-// ─── REGISTER (admin creates sub-user) ───────────────────────────────────────
 exports.register = async (req, res) => {
   try {
     const { fullName, email, password, role, vendorId } = req.body;
@@ -369,7 +357,6 @@ exports.register = async (req, res) => {
   }
 };
 
-// ─── Vendor Invite Check ──────────────────────────────────────────────────────
 exports.checkVendorInvite = async (req, res) => {
   try {
     const { token } = req.params;
@@ -395,7 +382,6 @@ exports.checkVendorInvite = async (req, res) => {
   }
 };
 
-// ─── Accept Vendor Invite (creates Fleet Manager account) ────────────────────
 exports.acceptVendorInvite = async (req, res) => {
   try {
     const { token, fullName, password } = req.body;
@@ -438,7 +424,6 @@ exports.acceptVendorInvite = async (req, res) => {
   }
 };
 
-// ─── Change Password (first login or manual) ─────────────────────────────────
 exports.changePassword = async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -461,7 +446,6 @@ exports.changePassword = async (req, res) => {
   }
 };
 
-// ─── REQUEST PASSWORD RESET (approval flow) ───────────────────────────────────
 // User fills in email + new password → goes to their manager for approval
 exports.requestPasswordReset = async (req, res) => {
   try {
@@ -584,7 +568,6 @@ exports.requestPasswordReset = async (req, res) => {
   }
 };
 
-// ─── APPROVE / REJECT RESET REQUEST ──────────────────────────────────────────
 exports.reviewPasswordReset = async (req, res) => {
   try {
     const { token } = req.params;
@@ -642,7 +625,6 @@ exports.reviewPasswordReset = async (req, res) => {
   }
 };
 
-// ─── MANAGER ISSUES NEW CREDENTIALS ──────────────────────────────────────────
 exports.issueCredentials = async (req, res) => {
   try {
     const { userId, newPassword } = req.body;

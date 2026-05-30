@@ -3,7 +3,6 @@ import { Plus, CheckCircle, MessageSquare, X, ChevronDown, RefreshCw, Search, Wr
 import toast from 'react-hot-toast';
 import { jobService, vehicleService } from '../../services/api';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
 const STATUS_MAP = {
   SUBMITTED:          { label: 'Submitted',        cls: 'bg-blue-500/15 text-blue-300' },
   DIAGNOSED:          { label: 'Diagnosed',         cls: 'bg-purple-500/15 text-purple-300' },
@@ -58,7 +57,6 @@ function StyledSelect({ label, value, onChange, options }) {
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function VendorJobsPage() {
   const [jobs, setJobs] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -112,7 +110,7 @@ export default function VendorJobsPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  // ─── Submit New Job ──────────────────────────────────────────────────────
+  
   const handleSubmit = async () => {
     if (!form.vehicleId) { toast.error('Select a vehicle'); return; }
     if (!form.description.trim()) { toast.error('Describe the fault'); return; }
@@ -133,7 +131,7 @@ export default function VendorJobsPage() {
     } finally { setSubmitting(false); }
   };
 
-  // ─── Approve Estimate ────────────────────────────────────────────────────
+  
   const handleApprove = async (job) => {
     setApprovingId(job.id);
     try {
@@ -145,7 +143,7 @@ export default function VendorJobsPage() {
     } finally { setApprovingId(null); }
   };
 
-  // ─── Query Estimate ──────────────────────────────────────────────────────
+  
   const handleQuery = async () => {
     if (!queryNote.trim()) { toast.error('Enter your query'); return; }
     setQueryLoading(true);
@@ -160,7 +158,7 @@ export default function VendorJobsPage() {
     } finally { setQueryLoading(false); }
   };
 
-  // ─── Render ──────────────────────────────────────────────────────────────
+  
   const activeCount = jobs.filter(j => ['SUBMITTED','DIAGNOSED','ESTIMATE_SENT','ESTIMATE_APPROVED','REPAIR_STARTED'].includes(j.status)).length;
 
   return (

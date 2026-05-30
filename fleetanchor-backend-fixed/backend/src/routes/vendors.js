@@ -52,5 +52,4 @@ router.post('/:id/restore',
   vc.restore
 );
 
-
 module.exports = router;

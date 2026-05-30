@@ -12,7 +12,6 @@ const { validate } = require('../middleware/validate');
 const { authenticate, requireRole } = require('../middleware/auth');
 const prisma = require('../config/prisma');
 
-// ─── Public: Driver submits signup request ────────────────────────────────────
 // This is the unauthenticated endpoint — the driver app calls this without a token
 router.post('/signup',
   body('fullName').trim().isLength({ min: 2 }),
@@ -109,7 +108,6 @@ router.post('/signup',
   }
 );
 
-// ─── Get pending driver requests (Fleet Manager) ──────────────────────────────
 router.get('/requests',
   authenticate,
   requireRole(['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR', 'OEM_ADMIN', 'SUPER_ADMIN']),
@@ -130,7 +128,6 @@ router.get('/requests',
   }
 );
 
-// ─── Approve driver signup ────────────────────────────────────────────────────
 router.post('/requests/:id/approve',
   authenticate,
   requireRole(['FLEET_MANAGER', 'OEM_ADMIN', 'SUPER_ADMIN']),
@@ -232,7 +229,6 @@ router.post('/requests/:id/approve',
   }
 );
 
-// ─── Reject driver signup ─────────────────────────────────────────────────────
 router.post('/requests/:id/reject',
   authenticate,
   requireRole(['FLEET_MANAGER', 'OEM_ADMIN', 'SUPER_ADMIN']),

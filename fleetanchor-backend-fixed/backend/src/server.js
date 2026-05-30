@@ -3,7 +3,6 @@ const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
 
-
 const logger = require("./config/logger");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
 const helmet = require("helmet");
@@ -26,15 +25,12 @@ const app = express();
 app.disable("x-powered-by"); // hide Express fingerprint
 const PORT = process.env.PORT || 5000;
 
-
-// ── Security headers (helmet) ────────────────────────────────────────────────
 app.use(helmet({
   contentSecurityPolicy: false, // API only — no HTML served
   crossOriginEmbedderPolicy: false,
 }));
 app.set("trust proxy", 1); // trust Railway/Vercel reverse proxy for real IP
 
-// ── Global API rate limiter — 200 req/15min per IP ───────────────────────────
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
@@ -45,7 +41,6 @@ const globalLimiter = rateLimit({
 });
 app.use("/api/", globalLimiter);
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "https://anchor-fleet-pro.vercel.app",
@@ -73,16 +68,13 @@ const corsOptions = {
 app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
 
-// ── Body parsing ──────────────────────────────────────────────────────────────
 // Paystack webhook needs raw body BEFORE express.json()
 app.use("/api/webhooks/paystack", express.raw({ type: "application/json" }));
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
-// ── Compression — gzip all responses ─────────────────────────────────────────
 app.use(compression({ level: 6, threshold: 1024 }));
 
-// ── Security & performance headers ───────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -96,7 +88,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── Simple in-memory cache for heavy read endpoints (60s TTL) ────────────────
 const cache = new Map();
 const CACHE_TTL = 60 * 1000; // 60 seconds
 
@@ -130,7 +121,6 @@ function clearCache(pattern) {
 }
 app.locals.clearCache = clearCache;
 
-// ── Health check (no auth, no logging) ───────────────────────────────────────
 app.get("/health", (req, res) => {
   res.setHeader("Cache-Control", "no-cache");
   const isProd = process.env.NODE_ENV === "production";
@@ -145,7 +135,6 @@ app.get("/", (req, res) => {
   res.json({ service: "FleetAnchor Pro API", status: "running" });
 });
 
-// ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/vendors", vendorRoutes);
@@ -168,7 +157,6 @@ app.use("/api/setup", require("./routes/setup"));
 app.use(notFoundHandler);
 app.use(errorHandler);
 
-// ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`FleetAnchor Pro API running on port ${PORT}`);
   try {

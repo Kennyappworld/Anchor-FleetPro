@@ -45,7 +45,7 @@ export default function ForgotPasswordPage() {
   const checks = pwChecks(password, confirmPw);
   const pwOk = Object.values(checks).every(Boolean);
 
-  // ── OTP flow ───────────────────────────────────────────────────────────────
+  
   const sendOtp = async () => {
     if (!email.includes('@')) { toast.error('Enter a valid email'); return; }
     setLoading(true);
@@ -79,7 +79,7 @@ export default function ForgotPasswordPage() {
     finally { setLoading(false); }
   };
 
-  // ── Manager approval flow ──────────────────────────────────────────────────
+  
   const submitManagerRequest = async () => {
     if (!email.includes('@')) { toast.error('Enter a valid email'); return; }
     if (!pwOk) { toast.error('Check password requirements'); return; }

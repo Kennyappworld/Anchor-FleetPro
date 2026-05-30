@@ -4,7 +4,6 @@ const axios = require('axios');
 const PLAN_AMOUNTS = { GROWTH: 85000, ENTERPRISE: 250000 }; // in Naira
 const PLAN_DAYS = 30; // every plan is 30-day billing cycle
 
-// ─── Helper: calculate smart renewal start date ────────────────────────────
 // If there are still days left on the current subscription, the new period
 // starts AFTER the current one expires — not immediately.
 function calcNewDates(currentSub) {
@@ -45,7 +44,6 @@ exports.getForVendor = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─── Initiate payment (opens Paystack checkout) ────────────────────────────
 exports.initiate = async (req, res, next) => {
   try {
     const { vendorId, plan } = req.body;
@@ -104,7 +102,6 @@ exports.initiate = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─── Verify payment after redirect ────────────────────────────────────────
 exports.verify = async (req, res, next) => {
   try {
     const { reference } = req.query;
@@ -135,7 +132,6 @@ exports.verify = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─── Core: activate or queue subscription ─────────────────────────────────
 async function activateSubscription({ vendorId, plan, startDate, expiryDate, paystackAuthCode, paystackEmail, reference }) {
   const now = new Date();
   const isImmediate = startDate <= now;
@@ -223,7 +219,6 @@ exports.cancel = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─── Super Admin: extend plan without payment ─────────────────────────────
 exports.extend = async (req, res, next) => {
   try {
     const { vendorId, days, plan } = req.body;
@@ -262,7 +257,6 @@ exports.extend = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─── Super Admin: demo mode toggle ────────────────────────────────────────
 exports.toggleDemo = async (req, res, next) => {
   try {
     const { vendorId, enabled } = req.body;

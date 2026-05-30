@@ -128,9 +128,8 @@ async function checkComplianceAlerts() {
   return { sent: totalSent };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // EMAIL TEMPLATE
-// ─────────────────────────────────────────────────────────────────────────────
+
 function buildComplianceEmail({ label, color, vendorDocs, vendor, recipientName, days, now }) {
   const isOverdue = days <= 0;
   const urgencyBg = isOverdue ? '#FEE8E8' : days <= 7 ? '#FFF3DC' : '#EAF7F0';
@@ -239,9 +238,8 @@ function buildComplianceEmail({ label, color, vendorDocs, vendor, recipientName,
   </html>`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
 // BATCHED SERVICE ALERT (same concept — grouped by vendor)
-// ─────────────────────────────────────────────────────────────────────────────
+
 async function checkServiceAlertsBatched() {
   const { sendEmail } = require('./emailService');
   const now = new Date();
@@ -386,10 +384,8 @@ async function checkServiceAlertsBatched() {
   return { alerted };
 }
 
-
-// ─────────────────────────────────────────────────────────────────────────────
 // DRIVER LICENCE ALERTS (batched, same pattern as compliance)
-// ─────────────────────────────────────────────────────────────────────────────
+
 async function checkDriverLicenceAlerts() {
   const now = new Date();
   let totalSent = 0;

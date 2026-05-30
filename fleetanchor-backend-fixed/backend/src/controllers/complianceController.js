@@ -16,7 +16,6 @@ const DOC_LABELS = {
   OTHER:              'Other Document',
 };
 
-// ─── TRIAL CHECK helper ───────────────────────────────────────────────────────
 async function checkComplianceAccess(vendorId, userId) {
   // SUPER_ADMIN / OEM_ADMIN always have access
   const vendor = await prisma.vendor.findUnique({
@@ -53,7 +52,6 @@ async function checkComplianceAccess(vendorId, userId) {
   return { allowed: false, plan, trial: true, trialEndsAt: trialEnd, daysLeft: 0, reason: 'Trial expired. Upgrade to Growth or Enterprise to continue.' };
 }
 
-// ─── LIST all documents for this vendor ───────────────────────────────────────
 exports.list = async (req, res) => {
   try {
     const vendorId = req.user.vendorId || req.query.vendorId;
@@ -87,7 +85,6 @@ exports.list = async (req, res) => {
   }
 };
 
-// ─── CREATE single document ────────────────────────────────────────────────────
 exports.create = async (req, res) => {
   try {
     const vendorId = req.user.vendorId || req.body.vendorId;
@@ -163,7 +160,6 @@ exports.add = async (req, res) => {
   }
 };
 
-// ─── UPDATE document ───────────────────────────────────────────────────────────
 exports.update = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -192,7 +188,6 @@ exports.update = async (req, res) => {
   }
 };
 
-// ─── DELETE document ───────────────────────────────────────────────────────────
 exports.remove = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -207,7 +202,6 @@ exports.remove = async (req, res) => {
   }
 };
 
-// ─── BULK IMPORT from Excel ────────────────────────────────────────────────────
 exports.bulkImport = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -272,7 +266,6 @@ exports.bulkImport = async (req, res) => {
   }
 };
 
-// ─── GET compliance summary for a vendor ──────────────────────────────────────
 exports.summary = async (req, res) => {
   try {
     const vendorId = req.user.vendorId || req.params.vendorId;

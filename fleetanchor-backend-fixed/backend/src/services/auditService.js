@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 
-// ─── Hash-chained audit log ───────────────────────────────────────────────────
 // Each record contains the SHA-256 hash of the previous record,
 // making deletion or tampering detectable by chain verification.
 
@@ -45,7 +44,6 @@ exports.log = async ({
   }
 };
 
-// ─── Verify chain integrity ────────────────────────────────────────────────────
 exports.verifyChain = async () => {
   const logs = await prisma.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
   let prevHash = null;
@@ -73,7 +71,6 @@ exports.verifyChain = async () => {
   return { intact: !broken, brokenAt };
 };
 
-// ─── Export audit logs ────────────────────────────────────────────────────────
 exports.getAuditLogs = async ({ userId, entityType, entityId, from, to, page = 1, limit = 50 }) => {
   const where = {};
   if (userId) where.userId = userId;
@@ -89,7 +86,6 @@ exports.getAuditLogs = async ({ userId, entityType, entityId, from, to, page = 1
   return { logs, total, pages: Math.ceil(total / limit) };
 };
 
-// ─── Convenience wrapper used by controllers ──────────────────────────────────
 // Signature: logAction(req, action, entityType, entityId, metadata)
 exports.logAction = async (req, action, entityType, entityId, metadata) => {
   try {

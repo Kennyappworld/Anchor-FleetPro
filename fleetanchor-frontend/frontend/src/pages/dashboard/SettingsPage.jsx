@@ -426,7 +426,6 @@ export default function SettingsPage() {
         <p className="text-[10px] text-[var(--text3)] mt-2">Only Growth + Enterprise vendors with active subscriptions will receive a report.</p>
       </div>
 
-
       {/* ── DEMO DATA RESET ───────────────────────── */}
       <div className="card p-5 border border-red-500/20">
         <div className="flex items-center gap-2 mb-1">

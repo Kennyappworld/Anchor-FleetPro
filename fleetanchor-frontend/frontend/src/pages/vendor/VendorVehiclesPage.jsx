@@ -67,7 +67,7 @@ export default function VendorVehiclesPage() {
     v.model?.toLowerCase().includes(search.toLowerCase())
   );
 
-  // ── Add Vehicle ──
+  
   const handleAdd = async () => {
     const { vin, plateNumber, make, model, year, engineNumber } = addForm;
     if (!vin || !plateNumber || !make || !model || !year) { toast.error('Fill all required fields'); return; }
@@ -83,7 +83,7 @@ export default function VendorVehiclesPage() {
     } finally { setAddLoading(false); }
   };
 
-  // ── Delete ──
+  
   const handleDelete = async () => {
     setDeleteLoading(true);
     try {
@@ -96,7 +96,7 @@ export default function VendorVehiclesPage() {
     } finally { setDeleteLoading(false); }
   };
 
-  // ── Excel Import ──
+  
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;

@@ -7,7 +7,6 @@ const { logAction } = require('../services/auditService');
 const SESSION_WINDOW_MS = 5 * 60 * 1000; // 5 min between scan and odometer
 const TRIAL_DAYS = 60; // 2-month trial for all plans
 
-// ─── FEATURE FLAG CHECK ────────────────────────────────────────────────────────
 async function isFeatureEnabled(key) {
   try {
     const flag = await prisma.featureFlag.findUnique({ where: { key } });
@@ -15,7 +14,6 @@ async function isFeatureEnabled(key) {
   } catch { return true; }
 }
 
-// ─── PLAN ACCESS CHECK ─────────────────────────────────────────────────────────
 async function checkInspectionAccess(vendorId) {
   const featureOn = await isFeatureEnabled('driver_app');
   if (!featureOn) return { allowed: false, reason: 'Driver app feature is currently disabled by administrator.' };
@@ -43,7 +41,6 @@ async function checkInspectionAccess(vendorId) {
   return { allowed: false, plan, trial: true, daysLeft: 0, trialEndsAt: trialEnd, reason: 'Trial expired. Upgrade to Enterprise.' };
 }
 
-// ─── SCAN VEHICLE (POST /api/inspections/scan) ────────────────────────────────
 exports.scanVehicle = async (req, res) => {
   try {
     const { plateNumber, vin } = req.body;
@@ -153,7 +150,6 @@ exports.scanVehicle = async (req, res) => {
   }
 };
 
-// ─── CAPTURE ODOMETER (POST /api/inspections/odometer) ───────────────────────
 exports.captureOdometer = async (req, res) => {
   try {
     const { sessionToken, odometer } = req.body;
@@ -196,7 +192,6 @@ exports.captureOdometer = async (req, res) => {
   }
 };
 
-// ─── SUBMIT INSPECTION (POST /api/inspections/submit) ────────────────────────
 exports.submitInspection = async (req, res) => {
   try {
     const { sessionToken, inspectionType, overallCondition, driverName, driverLicence: driverLicNum, driverPhone, checklist, tyres, notes, photoUrls, latitude, longitude } = req.body;
@@ -300,7 +295,6 @@ exports.submitInspection = async (req, res) => {
   }
 };
 
-// ─── UPDATE DRIVER SCORE (async background) ───────────────────────────────────
 async function updateDriverScore(driverId, vendorId, checklist) {
   try {
     const now = new Date();
@@ -339,7 +333,6 @@ async function updateDriverScore(driverId, vendorId, checklist) {
   } catch (err) { logger.warn('updateDriverScore failed:', err.message); }
 }
 
-// ─── LIST INSPECTIONS for a vehicle ───────────────────────────────────────────
 exports.listForVehicle = async (req, res) => {
   try {
     const { vehicleId } = req.params;
@@ -354,7 +347,6 @@ exports.listForVehicle = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── CURRENT TYRES ────────────────────────────────────────────────────────────
 exports.currentTyres = async (req, res) => {
   try {
     const { vehicleId } = req.params;
@@ -366,7 +358,6 @@ exports.currentTyres = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── REGISTER TYRE CHANGE (fleet manager) ────────────────────────────────────
 exports.registerTyreChange = async (req, res) => {
   try {
     const { vehicleId, position, serialNumber, brand, model, sizeSpec, odometer } = req.body;
@@ -382,7 +373,6 @@ exports.registerTyreChange = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── SET TYRE CONFIG (fleet manager sets positions/count) ─────────────────────
 exports.setTyreConfig = async (req, res) => {
   try {
     const { vehicleId, totalTyres, positions, rotationInterval, replacementKm } = req.body;
@@ -398,7 +388,6 @@ exports.setTyreConfig = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── CHECKLIST TEMPLATES ──────────────────────────────────────────────────────
 exports.getTemplates = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -422,7 +411,6 @@ exports.saveTemplate = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── DRIVER LEADERBOARD ───────────────────────────────────────────────────────
 exports.driverLeaderboard = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -442,7 +430,6 @@ exports.driverLeaderboard = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── DASHBOARD SUMMARY ────────────────────────────────────────────────────────
 exports.dashboardSummary = async (req, res) => {
   try {
     const vendorId = req.user.vendorId;
@@ -461,7 +448,6 @@ exports.dashboardSummary = async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 };
 
-// ─── FEATURE FLAGS (Super Admin) ──────────────────────────────────────────────
 exports.listFeatureFlags = async (req, res) => {
   try {
     const flags = await prisma.featureFlag.findMany({ orderBy: { key: 'asc' } });

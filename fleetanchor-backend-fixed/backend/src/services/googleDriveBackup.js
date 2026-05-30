@@ -15,7 +15,6 @@
 const { google } = require('googleapis');
 const prisma = require('../config/prisma');
 
-// ─── Authenticate with Google using a Service Account ───────────────────────
 function getGoogleAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const keyBase64 = process.env.GOOGLE_PRIVATE_KEY;
@@ -34,7 +33,6 @@ function getGoogleAuth() {
   });
 }
 
-// ─── Fetch all data from database ───────────────────────────────────────────
 async function collectBackupData() {
   const [
     vendors, users, vehicles, jobRequests,
@@ -77,7 +75,6 @@ async function collectBackupData() {
   };
 }
 
-// ─── Upload a buffer to Google Drive ────────────────────────────────────────
 async function uploadToDrive(auth, fileName, content, folderId) {
   const drive = google.drive({ version: 'v3', auth });
 
@@ -100,7 +97,6 @@ async function uploadToDrive(auth, fileName, content, folderId) {
   return res.data;
 }
 
-// ─── Delete backups older than 90 days from Drive folder ────────────────────
 async function pruneOldBackups(auth, folderId) {
   if (!folderId) return;
   const drive = google.drive({ version: 'v3', auth });
@@ -119,7 +115,6 @@ async function pruneOldBackups(auth, folderId) {
   return old.length;
 }
 
-// ─── Main backup function ────────────────────────────────────────────────────
 async function runGoogleDriveBackup() {
   const startTime = Date.now();
   logger.info('[BACKUP] Starting Google Drive backup…');
@@ -218,7 +213,6 @@ async function runGoogleDriveBackup() {
   }
 }
 
-// ─── Manual trigger endpoint (Super Admin) ──────────────────────────────────
 async function triggerManualBackup(req, res) {
   try {
     if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
