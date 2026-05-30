@@ -133,7 +133,6 @@ exports.sendWelcome = ({ to, name, role, tempPassword }) => send({
 // ─── JOB SUBMITTED ────────────────────────────────────────────────────────────
 exports.sendJobSubmittedNotification = async ({ job }) => {
   
-  const prisma = require('../config/prisma');
   const staff = await prisma.user.findMany({ where: { oemId: job.vehicle?.vendor?.oemId, role: { in: ['OEM_ADMIN', 'WORKSHOP_STAFF'] }, active: true } });
   for (const s of staff) {
     await send({

@@ -1,23 +1,15 @@
 /**
- * Singleton Prisma client — reused across all controllers.
- * Prevents "too many connections" errors under load.
- * Connection pool: max 10 connections, 30s timeout.
+ * Singleton Prisma client — one instance shared across the entire app.
+ * Prevents "too many connections" under load.
  */
 const { PrismaClient } = require('@prisma/client');
 
-const globalForPrisma = global;
-
-const prisma = globalForPrisma.prisma || new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-  datasources: {
-    db: {
-      url: process.env.DATABASE_URL,
-    },
-  },
-});
-
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
+// Always use the global singleton — in production Node.js module cache handles this,
+// but the global ensures it works even if modules are re-required.
+if (!global._prisma) {
+  global._prisma = new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+  });
 }
 
-module.exports = prisma;
+module.exports = global._prisma;
