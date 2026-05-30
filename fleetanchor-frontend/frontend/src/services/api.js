@@ -1,7 +1,7 @@
 import axios from "axios";
 
-const RAILWAY_URL = "https://anchor-fleetpro-production.up.railway.app";
-const API_BASE = RAILWAY_URL + "/api";
+// Vercel proxy rewrites /api/* to Railway — no CORS needed
+const API_BASE = "/api";
 
 const api = axios.create({
   baseURL: API_BASE,
