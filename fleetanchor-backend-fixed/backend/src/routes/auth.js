@@ -119,4 +119,34 @@ router.post('/issue-credentials',
   authController.issueCredentials
 );
 
+// GET /api/auth/pending-resets — Fleet managers see pending reset requests for their vendor
+router.get('/pending-resets',
+  authenticate,
+  async (req, res) => {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = require('../config/prisma');
+      // Only managers and above can see pending resets
+      const allowed = ['FLEET_MANAGER','MAINTENANCE_SUPERVISOR','OEM_ADMIN','SUPER_ADMIN'];
+      if (!allowed.includes(req.user.role)) {
+        return res.status(403).json({ success: false, error: 'Access denied' });
+      }
+      const where = { status: 'PENDING', expiresAt: { gt: new Date() } };
+      if (req.user.vendorId) where.vendorId = req.user.vendorId;
+      const requests = await prisma.passwordResetRequest.findMany({
+        where,
+        orderBy: { requestedAt: 'desc' },
+        select: {
+          id: true, fullName: true, email: true,
+          requestedAt: true, expiresAt: true, status: true,
+          user: { select: { role: true } },
+        },
+      });
+      res.json({ success: true, data: requests });
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
+
 module.exports = router;

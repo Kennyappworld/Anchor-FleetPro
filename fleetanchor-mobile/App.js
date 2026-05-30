@@ -11,6 +11,7 @@ import InspectionFormScreen from './src/screens/InspectionFormScreen';
 import InspectionCompleteScreen from './src/screens/InspectionCompleteScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
 import TutorialScreen from './src/screens/TutorialScreen';
+import TutorialScreen from './src/screens/TutorialScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -98,6 +99,7 @@ function MainTabs({ user }) {
 export default function App() {
   const [user, setUser] = useState(null);
   const [ready, setReady] = useState(false);
+  const [tutorialSeen, setTutorialSeen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {

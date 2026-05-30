@@ -349,12 +349,34 @@ function PwFields({ password, setPassword, confirmPw, setConfirmPw, showPw, setS
   );
 }
 
-export function PoweredBy() {
+export function PoweredBy({ compact = false }) {
+  if (compact) {
+    return (
+      <div className="select-none text-center">
+        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+          style={{ background: 'linear-gradient(135deg, rgba(245,166,35,0.08) 0%, rgba(0,201,167,0.06) 100%)', border: '0.5px solid rgba(245,166,35,0.2)' }}>
+          <span className="text-[9px] text-slate-500">Powered by</span>
+          <span className="text-[10px] font-700 tracking-wider" style={{ background: 'linear-gradient(90deg, #F5A623, #00C9A7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            ⚓ AnchorSuites
+          </span>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mt-6 text-center select-none">
-      <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-white/[0.08] bg-white/[0.03]">
-        <span className="text-[10px] text-slate-500 tracking-wide">Powered by</span>
-        <span className="text-[11px] font-700 text-gold tracking-wider">⚓ AnchorSuites Technologies</span>
+      <div className="inline-flex flex-col items-center gap-1.5">
+        <div className="flex items-center gap-2 px-5 py-2.5 rounded-2xl"
+          style={{ background: 'linear-gradient(135deg, rgba(245,166,35,0.07) 0%, rgba(0,201,167,0.05) 100%)', border: '0.5px solid rgba(245,166,35,0.18)', boxShadow: '0 2px 12px rgba(245,166,35,0.06)' }}>
+          <div className="w-5 h-5 rounded-md flex items-center justify-center text-xs" style={{ background: 'linear-gradient(135deg, #F5A623, #00C9A7)' }}>⚓</div>
+          <div className="flex flex-col">
+            <span className="text-[9px] text-slate-500 leading-none tracking-widest uppercase">Powered by</span>
+            <span className="text-[11px] font-700 tracking-wide leading-tight" style={{ background: 'linear-gradient(90deg, #F5A623 0%, #00C9A7 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+              AnchorSuites Technologies
+            </span>
+          </div>
+        </div>
+        <span className="text-[9px] text-slate-600 tracking-wider">Enterprise Fleet Intelligence</span>
       </div>
     </div>
   );

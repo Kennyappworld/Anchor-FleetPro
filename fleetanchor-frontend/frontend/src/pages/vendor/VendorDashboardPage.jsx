@@ -10,6 +10,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell
 } from 'recharts';
 import { useAuthStore } from '../../context/authStore';
+import PendingResetsPanel from './PendingResetsPanel';
 import { analyticsService, subscriptionService } from '../../services/api';
 
 const fmt = n => `₦${Number(n || 0).toLocaleString()}`;
@@ -114,6 +115,9 @@ export default function VendorDashboardPage() {
           </button>
         </div>
       </div>
+
+      {/* ── Pending Password Resets ── */}
+      <PendingResetsPanel />
 
       {/* ── Trial Banner ── */}
       {sub?.status === 'TRIAL' && trialDays !== null && trialDays <= 10 && (

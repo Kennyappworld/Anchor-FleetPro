@@ -86,6 +86,10 @@ export default function LoginScreen({ onLogin }) {
       </View>
 
       <Text style={styles.footer}>Protected by 2FA, rate limiting, and end-to-end encryption</Text>
+      <View style={styles.poweredRow}>
+        <Text style={styles.poweredLabel}>Powered by</Text>
+        <Text style={styles.poweredBrand}>⚓ AnchorSuites Technologies</Text>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -122,4 +126,7 @@ const styles = StyleSheet.create({
   loginBtnText: { fontSize: 15, fontWeight: '700', color: '#000', letterSpacing: 0.3 },
   note: { fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 16 },
   footer: { fontSize: 11, color: '#334155', textAlign: 'center', marginTop: 32 },
+  poweredRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 },
+  poweredLabel: { fontSize: 10, color: '#1E293B' },
+  poweredBrand: { fontSize: 11, fontWeight: '700', color: '#F5A623' },
 });

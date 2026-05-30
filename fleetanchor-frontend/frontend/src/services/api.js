@@ -52,9 +52,18 @@ export const authService = {
   login: (data) => api.post("/auth/login", data),
   logout: () => api.post("/auth/logout"),
   refresh: (rt) => api.post("/auth/refresh", { refreshToken: rt }),
-  forgotPassword: (email, accountType) => api.post("/auth/forgot-password", { email, accountType }),
-  verifyOtp: (email, otp) => api.post("/auth/verify-otp", { email, otp }),
-  resetPassword: (token, password) => api.post("/auth/reset-password", { token, password }),
+  me: () => api.post("/auth/me"),
+  // Password reset — OTP flow
+  forgotPassword: (data) => api.post("/auth/forgot-password", data),
+  verifyOtp: (data) => api.post("/auth/verify-otp", data),
+  resetPassword: (data) => api.post("/auth/reset-password", data),
+  // Password reset — Manager approval flow
+  requestReset: (data) => api.post("/auth/request-reset", data),
+  getPendingResets: () => api.get("/auth/pending-resets"),
+  approveReset: (token, action, note) => api.get(`/auth/approve-reset/${token}?action=${action}&note=${encodeURIComponent(note||'')}`),
+  // Manager issues credentials to a user
+  issueCredentials: (data) => api.post("/auth/issue-credentials", data),
+  // Vendor invite
   checkVendorInvite: (token) => api.get(`/auth/vendor-invite/${token}`),
   acceptVendorInvite: (data) => api.post("/auth/vendor-setup", data),
   changePassword: (currentPassword, newPassword) => api.post("/auth/change-password", { currentPassword, newPassword }),
