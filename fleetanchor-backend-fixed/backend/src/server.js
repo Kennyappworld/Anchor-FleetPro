@@ -2,7 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
-const { execSync } = require("child_process");
+
 
 const logger = require("./config/logger");
 const { errorHandler, notFoundHandler } = require("./middleware/errorHandler");
@@ -26,14 +26,6 @@ const app = express();
 app.disable("x-powered-by"); // hide Express fingerprint
 const PORT = process.env.PORT || 5000;
 
-// ── Sync DB on startup ────────────────────────────────────────────────────────
-try {
-  console.log("Running prisma db push...");
-  execSync("npx prisma db push --accept-data-loss", { stdio: "inherit", timeout: 60000 });
-  console.log("Database ready!");
-} catch (err) {
-  console.error("DB push error (continuing):", err.message);
-}
 
 // ── Security headers (helmet) ────────────────────────────────────────────────
 app.use(helmet({
