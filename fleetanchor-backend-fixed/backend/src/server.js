@@ -1,15 +1,5 @@
 require("dotenv").config();
 
-// Sync database schema on startup
-const { execSync } = require("child_process");
-try {
-  execSync("npx prisma db push --accept-data-loss --skip-generate", { 
-    stdio: "pipe", timeout: 60000 
-  });
-} catch(e) {
-  // DB might already be in sync, continue
-}
-
 const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
