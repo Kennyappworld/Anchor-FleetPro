@@ -1,6 +1,5 @@
 [build]
 builder = "nixpacks"
-buildCommand = "npm install --legacy-peer-deps && npx prisma generate && npx prisma db push --accept-data-loss"
 
 [deploy]
 startCommand = "node src/server.js"
