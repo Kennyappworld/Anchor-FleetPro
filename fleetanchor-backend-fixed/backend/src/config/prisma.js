@@ -1,19 +1,19 @@
-const path = require('path');
-const clientPath = path.join(__dirname, '../../prisma/generated/client');
+let _client = null;
 
-let PrismaClient;
-try {
-  PrismaClient = require(clientPath).PrismaClient;
-} catch(e) {
-  // Fallback to default location
-  PrismaClient = require('@prisma/client').PrismaClient;
+function getClient() {
+  if (!_client) {
+    const { PrismaClient } = require('@prisma/client');
+    _client = new PrismaClient({
+      log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+      errorFormat: 'minimal',
+    });
+  }
+  return _client;
 }
 
-if (!global._prisma) {
-  global._prisma = new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-    errorFormat: 'minimal',
-  });
-}
-
-module.exports = global._prisma;
+// Return proxy that lazy-loads on first method call
+module.exports = new Proxy({}, {
+  get(_, prop) {
+    return getClient()[prop];
+  }
+});
