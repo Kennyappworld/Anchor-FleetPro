@@ -8,8 +8,6 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  // directUrl skips PgBouncer for migrations/db push
-  directUrl = env("DATABASE_URL")
 }
 
 // ─── MULTI-TENANT ROOT ────────────────────────────────────────────────────────
