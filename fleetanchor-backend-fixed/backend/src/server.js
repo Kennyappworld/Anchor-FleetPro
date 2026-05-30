@@ -90,6 +90,8 @@ app.use((req, res, next) => {
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("Keep-Alive", "timeout=30, max=100");
   next();

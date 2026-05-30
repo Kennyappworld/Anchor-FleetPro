@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
+const { escHtml, sanitizeSerial, sanitizePlate, sanitizeOdometer } = require('../utils/sanitize');
 const logger = require('../config/logger');
 const { logAction } = require('../services/auditService');
 
@@ -50,6 +51,8 @@ exports.scanVehicle = async (req, res) => {
     const driverId = req.user.userId;
 
     if (!plateNumber && !vin) return res.status(400).json({ success: false, error: 'Provide plateNumber or VIN' });
+    const cleanPlate = plateNumber ? sanitizePlate(plateNumber) : undefined;
+    const cleanVin = vin ? String(vin).replace(/[^A-Z0-9]/gi,'').toUpperCase().slice(0,17) : undefined;
 
     const access = await checkInspectionAccess(vendorId);
     if (!access.allowed) return res.status(403).json({ success: false, error: access.reason, trialExpired: true });
@@ -158,6 +161,15 @@ exports.captureOdometer = async (req, res) => {
 
     if (!sessionToken || !odometer) return res.status(400).json({ success: false, error: 'sessionToken and odometer required' });
 
+    // Validate tyre positions count to prevent abuse
+    if (tyres && Object.keys(tyres).length > 20) {
+      return res.status(400).json({ success: false, error: 'Too many tyre positions submitted' });
+    }
+    // Validate notes length
+    if (notes && notes.length > 2000) {
+      return res.status(400).json({ success: false, error: 'Notes too long (max 2000 characters)' });
+    }
+
     const session = await prisma.inspectionSession.findUnique({ where: { sessionToken } });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
     if (session.driverId !== driverId) return res.status(403).json({ success: false, error: 'Session belongs to different driver' });
@@ -209,7 +221,7 @@ exports.submitInspection = async (req, res) => {
       const submitted = tyres[pos];
       if (!submitted) continue;
       const currentTyre = vehicle.tyreRecords.find(t => t.position === pos);
-      const submittedSerial = (submitted.serial || '').trim().toUpperCase();
+      const submittedSerial = sanitizeSerial(submitted.serial || '');
 
       if (submittedSerial && submitted.newTyre !== true) {
         // Check if this serial belongs to ANOTHER vehicle (cross-vehicle tyre theft detection)
@@ -260,7 +272,7 @@ exports.submitInspection = async (req, res) => {
     const inspection = await prisma.vehicleInspection.create({
       data: {
         vehicleId: vehicle.id, vendorId, driverId,
-        driverName: driverName || req.user.email,
+        driverName: escHtml(driverName || req.user.email).slice(0, 100),
         driverLicence: driverLicNum || null,
         driverPhone: driverPhone || null,
         odometer, sessionId: session.id,

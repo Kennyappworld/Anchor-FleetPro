@@ -301,16 +301,20 @@ model Notification {
   id        String   @id @default(uuid())
   jobId     String?
   job       JobRequest? @relation(fields: [jobId], references: [id])
+  vendorId  String?
   sentById  String?
   sentBy    User?    @relation(fields: [sentById], references: [id])
   toEmail   String
   type      String
   subject   String
   body      String
+  metadata  String?  // JSON string for extra data (tyre alerts etc)
   sentAt    DateTime @default(now())
   success   Boolean  @default(true)
   error     String?
+  read      Boolean  @default(false)
 
+  @@index([vendorId])
   @@map("notifications")
 }
 
