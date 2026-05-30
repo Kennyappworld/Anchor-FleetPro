@@ -1,6 +1,6 @@
 {
   "name": "fleetanchor-backend",
-  "version": "1.0.0",
+  "version": "2.1.0",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
@@ -33,5 +33,6 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "description": "FleetAnchor Pro - Fleet and Maintenance Management Platform"
 }
