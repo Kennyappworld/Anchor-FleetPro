@@ -76,7 +76,10 @@ model Vendor {
   subscriptions Subscription[]
   documents     VehicleDocument[]
   driverLicences DriverLicence[]
+  inspections    VehicleInspection[]
+  tyreRecords    TyreRecord[]
   driverSignupRequests DriverSignupRequest[]
+  inspectionTrialStartedAt DateTime?  // 2-month trial for all plans
 
   @@index([oemId])
   @@index([deletedAt])
@@ -148,6 +151,8 @@ model Vehicle {
 
   jobRequests  JobRequest[]
   documents    VehicleDocument[]
+  inspections  VehicleInspection[]
+  tyreRecords  TyreRecord[]
 
   @@index([vin])
   @@index([plateNumber])
@@ -479,4 +484,130 @@ model DriverLicence {
   @@index([vendorId])
   @@index([expiryDate])
   @@map("driver_licences")
+}
+
+// ─── TYRE RECORDS ─────────────────────────────────────────────────────────────
+model TyreRecord {
+  id                 String    @id @default(uuid())
+  vehicleId          String
+  vehicle            Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vendorId           String
+  vendor             Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  position           TyrePosition           // FL, FR, RL, RR
+  serialNumber       String                 // manufacturer serial / DOT number
+  brand              String?
+  model              String?
+  sizeSpec           String?                // e.g. "225/65R17"
+  fittedOdometer     Int                    // odometer (km) when tyre was fitted
+  removedOdometer    Int?                   // odometer when removed (null = still fitted)
+  kmCovered          Int        @default(0) // updated on each inspection
+  isCurrent          Boolean    @default(true)
+  fittedAt           DateTime   @default(now())
+  removedAt          DateTime?
+  fittedByDriverId   String?
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([vehicleId, position, isCurrent])
+  @@index([serialNumber])
+  @@map("tyre_records")
+}
+
+// ─── DRIVER INSPECTION SESSIONS (scan → 5-min window) ─────────────────────────
+model InspectionSession {
+  id          String    @id @default(uuid())
+  vehicleId   String
+  driverId    String    // User.id of the driver
+  sessionToken String   @unique
+  expiresAt   DateTime  // exactly 5 minutes from scan
+  odometerCaptured Int? // odometer entered within window
+  status      SessionStatus @default(OPEN)
+  createdAt   DateTime @default(now())
+
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([sessionToken])
+  @@map("inspection_sessions")
+}
+
+// ─── VEHICLE INSPECTIONS ──────────────────────────────────────────────────────
+model VehicleInspection {
+  id              String            @id @default(uuid())
+  vehicleId       String
+  vehicle         Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vendorId        String
+  vendor          Vendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  driverId        String?           // User.id if registered driver
+  driverName      String            // editable at inspection time
+  driverLicence   String?
+  driverPhone     String?
+  odometer        Int               // reading at time of inspection
+  sessionId       String?           // InspectionSession.id
+  inspectionType  InspectionType    @default(PRE_TRIP)
+  overallCondition VehicleCondition @default(GOOD)
+  notes           String?
+
+  // Standard checklist items (all boolean: pass=true, fail=false, null=not checked)
+  lightsOk        Boolean?
+  brakesOk        Boolean?
+  engineOilOk     Boolean?
+  coolantOk       Boolean?
+  exhaustOk       Boolean?
+  wiperOk         Boolean?
+  hornOk          Boolean?
+  steeringOk      Boolean?
+  mirrorsOk       Boolean?
+  bodyDamage      Boolean?          // true = damage found
+
+  // Tyre snapshot at time of inspection
+  tyreFL          Json?             // { serial, kmCovered, condition, pressure }
+  tyreFR          Json?
+  tyreRL          Json?
+  tyreRR          Json?
+
+  // Photos (stored as URLs, uploaded to cloud storage)
+  photoUrls       String[]          @default([])
+
+  // Audit
+  auditHash       String?           // sha256 chain
+  submittedAt     DateTime          @default(now())
+  latitude        Float?
+  longitude       Float?
+
+  @@index([vehicleId])
+  @@index([vendorId])
+  @@index([submittedAt])
+  @@map("vehicle_inspections")
+}
+
+// ─── INSPECTION FEATURE TRIAL ─────────────────────────────────────────────────
+// Add to Vendor model below
+
+enum TyrePosition {
+  FL
+  FR
+  RL
+  RR
+}
+
+enum SessionStatus {
+  OPEN
+  COMPLETED
+  EXPIRED
+}
+
+enum InspectionType {
+  PRE_TRIP
+  POST_TRIP
+  PERIODIC
+  INCIDENT
+}
+
+enum VehicleCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  CRITICAL
 }
