@@ -6,7 +6,6 @@ if (!global._prisma) {
     errorFormat: 'minimal',
   });
 
-  // Handle graceful shutdown
   process.on('beforeExit', async () => {
     await global._prisma.$disconnect();
   });
