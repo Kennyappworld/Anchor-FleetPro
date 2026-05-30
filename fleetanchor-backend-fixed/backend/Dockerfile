@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:20-slim AS base
 
 RUN apt-get update -y && \
     apt-get install -y openssl ca-certificates && \
@@ -6,11 +6,14 @@ RUN apt-get update -y && \
 
 WORKDIR /app
 
-COPY . .
+COPY package*.json ./
+COPY prisma ./prisma/
 
 RUN npm install --legacy-peer-deps
 
 RUN npx prisma generate
+
+COPY . .
 
 EXPOSE 5000
 
