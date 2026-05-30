@@ -61,18 +61,25 @@ const allowedOrigins = [
   "http://localhost:5173",
 ].filter(Boolean);
 
-app.use(cors({
+const corsOptions = {
   origin: (origin, cb) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
+    // In dev/staging, also allow any vercel preview URL
+    if (origin && origin.endsWith(".vercel.app")) return cb(null, true);
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization","X-Device-Fingerprint"],
+  exposedHeaders: ["X-Total-Count"],
   credentials: false,
-}));
-app.options("*", cors());
+  optionsSuccessStatus: 204,
+};
+
+// Must register OPTIONS handler BEFORE the main cors middleware
+app.options("*", cors(corsOptions));
+app.use(cors(corsOptions));
 
 // ── Body parsing ──────────────────────────────────────────────────────────────
 // Paystack webhook needs raw body BEFORE express.json()
