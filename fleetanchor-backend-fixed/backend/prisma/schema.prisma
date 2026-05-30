@@ -77,7 +77,9 @@ model Vendor {
   documents     VehicleDocument[]
   driverLicences DriverLicence[]
   inspections    VehicleInspection[]
-  tyreRecords    TyreRecord[]
+  tyreRecords      TyreRecord[]
+  checklistTemplates ChecklistTemplate[]
+  driverScores       DriverScore[]
   driverSignupRequests DriverSignupRequest[]
   inspectionTrialStartedAt DateTime?  // 2-month trial for all plans
 
@@ -153,6 +155,7 @@ model Vehicle {
   documents    VehicleDocument[]
   inspections  VehicleInspection[]
   tyreRecords  TyreRecord[]
+  tyreConfig   VehicleTyreConfig?
 
   @@index([vin])
   @@index([plateNumber])
@@ -610,4 +613,72 @@ enum VehicleCondition {
   FAIR
   POOR
   CRITICAL
+}
+
+// ─── PLATFORM FEATURE FLAGS ────────────────────────────────────────────────────
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique   // e.g. "driver_app", "tyre_tracking", "doc_compliance"
+  label       String
+  description String?
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@map("feature_flags")
+}
+
+// ─── VEHICLE CHECKLIST TEMPLATES ─────────────────────────────────────────────
+model ChecklistTemplate {
+  id          String              @id @default(uuid())
+  vendorId    String
+  vendor      Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name        String              // e.g. "Standard Pre-Trip"
+  type        InspectionType      @default(PRE_TRIP)
+  items       Json                // Array of { key, label, required, order }
+  isDefault   Boolean             @default(false)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([vendorId])
+  @@map("checklist_templates")
+}
+
+// ─── VEHICLE TYRE CONFIGURATION ──────────────────────────────────────────────
+// Fleet manager registers how many tyres a vehicle has (truck = 18, car = 4, etc.)
+model VehicleTyreConfig {
+  id              String   @id @default(uuid())
+  vehicleId       String   @unique
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  totalTyres      Int      @default(4)   // 4, 6, 10, 18 etc.
+  positions       Json     // Array of position labels: ["FL","FR","RL","RR"] or ["FL","FR","RL","RC","RR","SP"]
+  rotationInterval Int?    // km between tyre rotations
+  replacementKm   Int?     // km at which tyre should be replaced
+  updatedAt       DateTime @updatedAt
+  updatedBy       String?
+
+  @@map("vehicle_tyre_configs")
+}
+
+// ─── DRIVER PERFORMANCE SCORES ────────────────────────────────────────────────
+model DriverScore {
+  id           String   @id @default(uuid())
+  driverId     String
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  month        Int      // 1-12
+  year         Int
+  totalInspections  Int @default(0)
+  onTimeInspections Int @default(0)
+  passRate     Float    @default(0)  // % of checklist items passed
+  tyreAlerts   Int      @default(0)
+  avgConditionScore Float @default(0)
+  score        Int      @default(0)  // 0-100 composite
+  rank         Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([driverId, month, year])
+  @@index([vendorId])
+  @@map("driver_scores")
 }
