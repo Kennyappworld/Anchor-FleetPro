@@ -6,13 +6,10 @@ RUN apt-get update -y && \
 
 WORKDIR /app
 
-# Copy everything first
 COPY . .
 
-# Install all dependencies
 RUN npm install --legacy-peer-deps
 
-# Generate Prisma Client with all files present
 RUN npx prisma generate
 
 EXPOSE 5000
