@@ -1,3 +1,4 @@
+const logger = require('../config/logger');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { totp } = require('otplib');

@@ -1,3 +1,4 @@
+const logger = require('../config/logger');
 const prisma = require('../config/prisma');
 
 exports.create = async (req, res) => {
