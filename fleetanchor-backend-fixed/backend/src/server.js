@@ -53,10 +53,7 @@ const corsOptions = {
   origin: (origin, cb) => {
     // Allow requests with no origin (mobile apps, curl, server-to-server)
     if (!origin) return cb(null, true);
-    if (allowedOrigins.includes(origin)) return cb(null, true);
-    // In dev/staging, also allow any vercel preview URL
-    if (origin && origin.endsWith(".vercel.app")) return cb(null, true);
-    cb(new Error(`CORS: origin ${origin} not allowed`));
+    return cb(null, true); // Allow all origins temporarily
   },
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization","X-Device-Fingerprint"],
