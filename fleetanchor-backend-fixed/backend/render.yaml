@@ -2,17 +2,13 @@ services:
   - type: web
     name: anchor-fleetpro
     runtime: node
-    buildCommand: npm install --legacy-peer-deps && npx prisma generate && npx prisma db push --accept-data-loss
-    startCommand: node src/server.js
+    region: oregon
+    plan: free
+    rootDir: fleetanchor-backend-fixed/backend
+    buildCommand: npm install --legacy-peer-deps && npx prisma generate
+    startCommand: npx prisma db push --accept-data-loss && node src/server.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: anchor-fleetpro-db
-          property: connectionString
-    autoDeploy: true
-
-databases:
-  - name: anchor-fleetpro-db
-    plan: free
+      - key: PORT
+        value: 5000
