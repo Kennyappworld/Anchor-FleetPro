@@ -1,5 +1,7 @@
 const logger = require('../config/logger');
 const prisma = require('../config/prisma');
+const auditService = require('../services/auditService');
+const { sendEmail } = require('../services/emailService');
 
 exports.create = async (req, res) => {
   try {

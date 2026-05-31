@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const { totp } = require('otplib');
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
+const auditService = require('../services/auditService');
 
 const signAccess = (payload) =>
   jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
