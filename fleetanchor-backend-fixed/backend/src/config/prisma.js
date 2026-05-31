@@ -1,19 +1,10 @@
-let _client = null;
+const { PrismaClient } = require('@prisma/client');
 
-function getClient() {
-  if (!_client) {
-    const { PrismaClient } = require('@prisma/client');
-    _client = new PrismaClient({
-      log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
-      errorFormat: 'minimal',
-    });
-  }
-  return _client;
+if (!global._prisma) {
+  global._prisma = new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+    errorFormat: 'minimal',
+  });
 }
 
-// Return proxy that lazy-loads on first method call
-module.exports = new Proxy({}, {
-  get(_, prop) {
-    return getClient()[prop];
-  }
-});
+module.exports = global._prisma;

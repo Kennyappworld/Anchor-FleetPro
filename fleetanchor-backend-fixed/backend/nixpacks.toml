@@ -5,7 +5,7 @@ nixPkgs = ["nodejs_20", "openssl"]
 cmds = ["npm install --legacy-peer-deps"]
 
 [phases.build]
-cmds = ["npx prisma generate"]
+cmds = ["npm run build"]
 
 [start]
 cmd = "node src/server.js"

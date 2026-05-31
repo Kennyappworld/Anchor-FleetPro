@@ -1,2 +1,4 @@
-
-# Keep generated prisma client
+node_modules/
+.env
+*.log
+dist/
