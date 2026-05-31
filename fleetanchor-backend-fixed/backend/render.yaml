@@ -5,7 +5,7 @@ services:
     region: oregon
     plan: free
     rootDir: fleetanchor-backend-fixed/backend
-    buildCommand: npm install --legacy-peer-deps && npm run build
+    buildCommand: npm install --legacy-peer-deps && npm install prisma@5.10.2 @prisma/client@5.10.2 --save-exact && npx prisma generate
     startCommand: npx prisma db push --accept-data-loss && node src/server.js
     envVars:
       - key: NODE_ENV
