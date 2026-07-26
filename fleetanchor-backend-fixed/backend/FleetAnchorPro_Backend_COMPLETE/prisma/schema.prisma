@@ -1,0 +1,716 @@
+// FleetAnchor Pro — Prisma Database Schema
+// PostgreSQL with row-level multi-tenancy
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── MULTI-TENANT ROOT ────────────────────────────────────────────────────────
+model Tenant {
+  id          String       @id @default(uuid())
+  name        String
+  slug        String       @unique
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  oemCompanies OemCompany[]
+
+  @@map("tenants")
+}
+
+// ─── OEM COMPANIES (workshops that sell the platform) ─────────────────────────
+model OemCompany {
+  id           String       @id @default(uuid())
+  tenantId     String
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  name         String
+  contactEmail String
+  contactPhone String?
+  address      String?
+  logoUrl      String?
+  planTier     PlanTier     @default(GROWTH)
+  paystackSubCode String?
+  active       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  vendors      Vendor[]
+  users        User[]
+
+  @@map("oem_companies")
+}
+
+// ─── VENDORS (companies that bring fleets) ────────────────────────────────────
+model Vendor {
+  id            String        @id @default(uuid())
+  oemId         String
+  oem           OemCompany    @relation(fields: [oemId], references: [id])
+  companyName   String
+  contactEmail  String
+  contactPhone  String?
+  address       String?
+  status        VendorStatus  @default(ACTIVE)
+  suspendedAt   DateTime?
+  suspendedBy   String?
+  suspendReason String?
+  inviteToken   String?       @unique
+  inviteExpiry  DateTime?
+  inviteAccepted Boolean      @default(false)
+  trialEndsAt   DateTime?
+  trialPlan     PlanTier?
+  complianceTrialStartedAt DateTime?  // when STARTER first accessed compliance (1-month trial)
+  demoMode      Boolean       @default(false)
+  deletedAt     DateTime?
+  deletedBy     String?
+  purgeAt       DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  users         User[]
+  vehicles      Vehicle[]
+  subscriptions Subscription[]
+  documents     VehicleDocument[]
+  driverLicences DriverLicence[]
+  inspections    VehicleInspection[]
+  tyreRecords      TyreRecord[]
+  checklistTemplates ChecklistTemplate[]
+  driverScores       DriverScore[]
+  driverSignupRequests DriverSignupRequest[]
+  inspectionTrialStartedAt DateTime?  // 2-month trial for all plans
+
+  @@index([oemId])
+  @@index([deletedAt])
+  @@index([status])
+  @@map("vendors")
+}
+
+// ─── USERS ────────────────────────────────────────────────────────────────────
+model User {
+  id              String     @id @default(uuid())
+  oemId           String?
+  oem             OemCompany? @relation(fields: [oemId], references: [id])
+  vendorId        String?
+  vendor          Vendor?    @relation(fields: [vendorId], references: [id])
+  fullName        String
+  email           String     @unique
+  passwordHash    String
+  role            UserRole
+  totpSecret      String?
+  totpEnabled     Boolean    @default(false)
+  resetToken      String?
+  resetTokenHash  String?
+  resetExpires    DateTime?
+  resetAttempts   Int        @default(0)
+  lastResetAt     DateTime?
+  active          Boolean    @default(true)
+  mustChangePassword Boolean @default(false)
+  deletedAt       DateTime?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  lastPasswordChange DateTime?
+  resetRequests PasswordResetRequest[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  jobRequests     JobRequest[]
+  auditLogs       AuditLog[]
+  sentNotifications Notification[]
+
+  @@index([vendorId])
+  @@index([oemId])
+  @@index([email])
+  @@map("users")
+}
+
+// ─── VEHICLES ─────────────────────────────────────────────────────────────────
+model Vehicle {
+  id           String        @id @default(uuid())
+  vendorId     String
+  vendor       Vendor        @relation(fields: [vendorId], references: [id])
+  vin          String        @unique
+  plateNumber  String
+  engineNumber String?
+  make         String
+  model        String
+  year         Int
+  category     String?
+  status       VehicleStatus @default(ACTIVE)
+  registeredAt DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // ── Preventive Maintenance Scheduling ──────────────────────────────────────
+  lastServiceDate     DateTime?
+  lastServiceOdometer Int?        // km at last service
+  currentOdometer     Int?        // current odometer reading
+  serviceIntervalDays Int?        // e.g. 90 (days between services)
+  serviceIntervalKm   Int?        // e.g. 5000 (km between services)
+  nextServiceDate     DateTime?   // calculated: lastServiceDate + intervalDays
+  nextServiceOdometer Int?        // calculated: lastServiceOdometer + intervalKm
+  serviceAlertSent    Boolean     @default(false)  // reset after each service
+
+  jobRequests  JobRequest[]
+  documents    VehicleDocument[]
+  inspections  VehicleInspection[]
+  tyreRecords  TyreRecord[]
+  tyreConfig   VehicleTyreConfig?
+
+  @@index([vin])
+  @@index([plateNumber])
+  @@index([nextServiceDate])
+  @@map("vehicles")
+}
+
+// ─── JOB REQUESTS ─────────────────────────────────────────────────────────────
+model JobRequest {
+  id            String        @id @default(uuid())
+  jobNumber     String        @unique
+  vehicleId     String
+  vehicle       Vehicle       @relation(fields: [vehicleId], references: [id])
+  createdById   String
+  createdBy     User          @relation(fields: [createdById], references: [id])
+  category      RepairCategory
+  description   String
+  priority      Priority      @default(NORMAL)
+  status        JobStatus     @default(SUBMITTED)
+  bayNumber     String?
+  technicianId  String?
+  submittedAt   DateTime      @default(now())
+  diagnosedAt   DateTime?
+  estimateSentAt DateTime?
+  approvedAt    DateTime?
+  repairStartAt DateTime?
+  completedAt   DateTime?
+  paymentAt     DateTime?
+  closedAt      DateTime?
+  updatedAt     DateTime      @updatedAt
+  timelines     JobTimeline[]
+  estimates     Estimate[]
+  invoices      Invoice[]
+  notifications Notification[]
+
+  @@index([jobNumber])
+  @@index([status])
+  @@index([priority])
+  @@index([vehicleId])
+  @@map("job_requests")
+}
+
+// ─── JOB TIMELINE ─────────────────────────────────────────────────────────────
+model JobTimeline {
+  id          String     @id @default(uuid())
+  jobId       String
+  job         JobRequest @relation(fields: [jobId], references: [id])
+  status      JobStatus
+  note        String?
+  actorId     String?
+  actorName   String
+  createdAt   DateTime   @default(now())
+
+  @@map("job_timelines")
+}
+
+// ─── ESTIMATES ────────────────────────────────────────────────────────────────
+model Estimate {
+  id           String         @id @default(uuid())
+  jobId        String
+  job          JobRequest     @relation(fields: [jobId], references: [id])
+  partsCost    Decimal        @db.Decimal(12, 2)
+  labourCost   Decimal        @db.Decimal(12, 2)
+  totalCost    Decimal        @db.Decimal(12, 2)
+  notes        String?
+  status       EstimateStatus @default(PENDING)
+  queryNote    String?
+  revision     Int            @default(1)
+  sentAt       DateTime       @default(now())
+  approvedAt   DateTime?
+  rejectedAt   DateTime?
+
+  @@map("estimates")
+}
+
+// ─── INVOICES ─────────────────────────────────────────────────────────────────
+model Invoice {
+  id              String        @id @default(uuid())
+  invoiceNumber   String        @unique
+  jobId           String
+  job             JobRequest    @relation(fields: [jobId], references: [id])
+  partsCost       Decimal       @db.Decimal(12, 2)
+  labourCost      Decimal       @db.Decimal(12, 2)
+  totalAmount     Decimal       @db.Decimal(12, 2)
+  paymentConfirmed Boolean      @default(false)
+  paystackRef     String?
+  paystackTrxRef  String?
+  issuedAt        DateTime      @default(now())
+  paidAt          DateTime?
+  pdfUrl          String?
+
+  @@index([invoiceNumber])
+  @@map("invoices")
+}
+
+// ─── SUBSCRIPTIONS ────────────────────────────────────────────────────────────
+model Subscription {
+  id             String       @id @default(uuid())
+  vendorId       String
+  vendor         Vendor       @relation(fields: [vendorId], references: [id])
+  plan           PlanTier
+  startDate      DateTime
+  expiryDate     DateTime
+  autoRenew      Boolean      @default(true)
+  paystackSubCode String?
+  paystackEmail  String?
+  paystackAuthCode String?
+  status         SubStatus    @default(ACTIVE)
+  warningAt7Days Boolean      @default(false)
+  warningAt3Days Boolean      @default(false)
+  cancelledAt    DateTime?
+  renewedFromId  String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("subscriptions")
+}
+
+// ─── AUDIT LOGS (tamper-evident, hash-chained) ────────────────────────────────
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  actorLabel  String
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  deviceFp    String?
+  prevHash    String?
+  recordHash  String
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+model Notification {
+  id        String   @id @default(uuid())
+  jobId     String?
+  job       JobRequest? @relation(fields: [jobId], references: [id])
+  vendorId  String?
+  sentById  String?
+  sentBy    User?    @relation(fields: [sentById], references: [id])
+  toEmail   String
+  type      String
+  subject   String
+  body      String
+  metadata  String?  // JSON string for extra data (tyre alerts etc)
+  sentAt    DateTime @default(now())
+  success   Boolean  @default(true)
+  error     String?
+  read      Boolean  @default(false)
+
+  @@index([vendorId])
+  @@map("notifications")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────────────────
+enum PlanTier {
+  STARTER
+  GROWTH
+  ENTERPRISE
+  OEM_WHITE_LABEL
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  OEM_ADMIN
+  WORKSHOP_STAFF
+  FLEET_MANAGER
+  MAINTENANCE_SUPERVISOR
+  FIELD_AGENT
+  DRIVER
+}
+
+enum VendorStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+}
+
+// ─── DRIVER SIGNUP REQUESTS ───────────────────────────────────────────────────
+model DriverSignupRequest {
+  id           String   @id @default(uuid())
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id])
+  fullName     String
+  phone        String
+  email        String?
+  vehicleScan  String   // plate number or VIN scanned
+  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  rejectedReason String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime @default(now())
+  @@map("driver_signup_requests")
+}
+
+// ─── PLATFORM SETTINGS (Super Admin configurable) ────────────────────────────
+model PlatformSettings {
+  id            String   @id @default("singleton")
+  starterMonthly  Int    @default(45000)
+  starterAnnual   Int    @default(450000)
+  growthMonthly   Int    @default(95000)
+  growthAnnual    Int    @default(950000)
+  enterpriseMonthly Int  @default(250000)
+  enterpriseAnnual  Int  @default(2500000)
+  annualDiscountPct Float @default(16.7)
+  trialDays       Int    @default(30)
+  updatedAt     DateTime @updatedAt
+  updatedBy     String?
+  @@map("platform_settings")
+}
+
+enum VehicleStatus {
+  ACTIVE
+  IN_REPAIR
+  DECOMMISSIONED
+}
+
+enum JobStatus {
+  SUBMITTED
+  DIAGNOSED
+  ESTIMATE_SENT
+  ESTIMATE_APPROVED
+  ESTIMATE_QUERIED
+  REPAIR_STARTED
+  REPAIR_COMPLETE
+  AWAITING_PAYMENT
+  CLOSED
+}
+
+enum RepairCategory {
+  ENGINE
+  BRAKES
+  TRANSMISSION
+  ELECTRICAL
+  CLIMATE_CONTROL
+  TYRES_WHEELS
+  SUSPENSION
+  BODY_FRAME
+  FUEL_SYSTEM
+  OTHER
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+}
+
+enum EstimateStatus {
+  PENDING
+  APPROVED
+  QUERIED
+  REVISED
+  REJECTED
+}
+
+enum SubStatus {
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  SUSPENDED
+}
+
+// ─── VEHICLE DOCUMENTS (Compliance) ───────────────────────────────────────────
+model VehicleDocument {
+  id            String          @id @default(uuid())
+  vehicleId     String
+  vehicle       Vehicle         @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vendorId      String
+  vendor        Vendor          @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  docType       DocType
+  docNumber     String?
+  issuedDate    DateTime?
+  expiryDate    DateTime
+  alertSent30   Boolean         @default(false)
+  alertSent15   Boolean         @default(false)
+  alertSent7    Boolean         @default(false)
+  alertSentDay  Boolean         @default(false)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([vehicleId])
+  @@index([vendorId])
+  @@index([expiryDate])
+  @@map("vehicle_documents")
+}
+
+enum DocType {
+  ROAD_WORTHINESS
+  VEHICLE_LICENCE
+  INSURANCE
+  HACKNEY_PERMIT
+  ECOWAS_BROWN_CARD
+  FIRE_EXTINGUISHER
+  FIRST_AID_KIT
+  SPEED_LIMITER
+  DRIVERS_LICENCE
+  VEHICLE_REGISTRATION
+  CUSTOMS_PAPER
+  OTHER
+}
+
+// ─── DRIVER LICENCES ──────────────────────────────────────────────────────────
+model DriverLicence {
+  id              String    @id @default(uuid())
+  vendorId        String
+  vendor          Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  driverName      String
+  phone           String?
+  email           String?
+  licenceNumber   String?
+  licenceCategory String    // e.g. B, C, D, E, A, EC
+  issuedDate      DateTime?
+  expiryDate      DateTime
+  notes           String?
+  alertSent30     Boolean   @default(false)
+  alertSent15     Boolean   @default(false)
+  alertSent7      Boolean   @default(false)
+  alertSentDay    Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([vendorId])
+  @@index([expiryDate])
+  @@map("driver_licences")
+}
+
+// ─── TYRE RECORDS ─────────────────────────────────────────────────────────────
+model TyreRecord {
+  id                 String    @id @default(uuid())
+  vehicleId          String
+  vehicle            Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vendorId           String
+  vendor             Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  position           TyrePosition           // FL, FR, RL, RR
+  serialNumber       String                 // manufacturer serial / DOT number
+  brand              String?
+  model              String?
+  sizeSpec           String?                // e.g. "225/65R17"
+  fittedOdometer     Int                    // odometer (km) when tyre was fitted
+  removedOdometer    Int?                   // odometer when removed (null = still fitted)
+  kmCovered          Int        @default(0) // updated on each inspection
+  isCurrent          Boolean    @default(true)
+  fittedAt           DateTime   @default(now())
+  removedAt          DateTime?
+  fittedByDriverId   String?
+  notes              String?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  @@index([vehicleId, position, isCurrent])
+  @@index([serialNumber])
+  @@map("tyre_records")
+}
+
+// ─── DRIVER INSPECTION SESSIONS (scan → 5-min window) ─────────────────────────
+model InspectionSession {
+  id          String    @id @default(uuid())
+  vehicleId   String
+  driverId    String    // User.id of the driver
+  sessionToken String   @unique
+  expiresAt   DateTime  // exactly 5 minutes from scan
+  odometerCaptured Int? // odometer entered within window
+  status      SessionStatus @default(OPEN)
+  createdAt   DateTime @default(now())
+
+  @@index([vehicleId])
+  @@index([driverId])
+  @@index([sessionToken])
+  @@map("inspection_sessions")
+}
+
+// ─── VEHICLE INSPECTIONS ──────────────────────────────────────────────────────
+model VehicleInspection {
+  id              String            @id @default(uuid())
+  vehicleId       String
+  vehicle         Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vendorId        String
+  vendor          Vendor            @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  driverId        String?           // User.id if registered driver
+  driverName      String            // editable at inspection time
+  driverLicence   String?
+  driverPhone     String?
+  odometer        Int               // reading at time of inspection
+  sessionId       String?           // InspectionSession.id
+  inspectionType  InspectionType    @default(PRE_TRIP)
+  overallCondition VehicleCondition @default(GOOD)
+  notes           String?
+
+  // Standard checklist items (all boolean: pass=true, fail=false, null=not checked)
+  lightsOk        Boolean?
+  brakesOk        Boolean?
+  engineOilOk     Boolean?
+  coolantOk       Boolean?
+  exhaustOk       Boolean?
+  wiperOk         Boolean?
+  hornOk          Boolean?
+  steeringOk      Boolean?
+  mirrorsOk       Boolean?
+  bodyDamage      Boolean?          // true = damage found
+
+  // Tyre snapshot at time of inspection
+  tyreFL          Json?             // { serial, kmCovered, condition, pressure }
+  tyreFR          Json?
+  tyreRL          Json?
+  tyreRR          Json?
+
+  // Photos (stored as URLs, uploaded to cloud storage)
+  photoUrls       String[]          @default([])
+
+  // Audit
+  auditHash       String?           // sha256 chain
+  submittedAt     DateTime          @default(now())
+  latitude        Float?
+  longitude       Float?
+
+  @@index([vehicleId])
+  @@index([vendorId])
+  @@index([submittedAt])
+  @@map("vehicle_inspections")
+}
+
+// ─── INSPECTION FEATURE TRIAL ─────────────────────────────────────────────────
+// Add to Vendor model below
+
+enum TyrePosition {
+  FL
+  FR
+  RL
+  RR
+}
+
+enum SessionStatus {
+  OPEN
+  COMPLETED
+  EXPIRED
+}
+
+enum InspectionType {
+  PRE_TRIP
+  POST_TRIP
+  PERIODIC
+  INCIDENT
+}
+
+enum VehicleCondition {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  CRITICAL
+}
+
+// ─── PLATFORM FEATURE FLAGS ────────────────────────────────────────────────────
+model FeatureFlag {
+  id          String   @id @default(uuid())
+  key         String   @unique   // e.g. "driver_app", "tyre_tracking", "doc_compliance"
+  label       String
+  description String?
+  enabled     Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@map("feature_flags")
+}
+
+// ─── VEHICLE CHECKLIST TEMPLATES ─────────────────────────────────────────────
+model ChecklistTemplate {
+  id          String              @id @default(uuid())
+  vendorId    String
+  vendor      Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  name        String              // e.g. "Standard Pre-Trip"
+  type        InspectionType      @default(PRE_TRIP)
+  items       Json                // Array of { key, label, required, order }
+  isDefault   Boolean             @default(false)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([vendorId])
+  @@map("checklist_templates")
+}
+
+// ─── VEHICLE TYRE CONFIGURATION ──────────────────────────────────────────────
+// Fleet manager registers how many tyres a vehicle has (truck = 18, car = 4, etc.)
+model VehicleTyreConfig {
+  id              String   @id @default(uuid())
+  vehicleId       String   @unique
+  vehicle         Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  totalTyres      Int      @default(4)   // 4, 6, 10, 18 etc.
+  positions       Json     // Array of position labels: ["FL","FR","RL","RR"] or ["FL","FR","RL","RC","RR","SP"]
+  rotationInterval Int?    // km between tyre rotations
+  replacementKm   Int?     // km at which tyre should be replaced
+  updatedAt       DateTime @updatedAt
+  updatedBy       String?
+
+  @@map("vehicle_tyre_configs")
+}
+
+// ─── DRIVER PERFORMANCE SCORES ────────────────────────────────────────────────
+model DriverScore {
+  id           String   @id @default(uuid())
+  driverId     String
+  vendorId     String
+  vendor       Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  month        Int      // 1-12
+  year         Int
+  totalInspections  Int @default(0)
+  onTimeInspections Int @default(0)
+  passRate     Float    @default(0)  // % of checklist items passed
+  tyreAlerts   Int      @default(0)
+  avgConditionScore Float @default(0)
+  score        Int      @default(0)  // 0-100 composite
+  rank         Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([driverId, month, year])
+  @@index([vendorId])
+  @@map("driver_scores")
+}
+
+// ─── PASSWORD RESET REQUESTS (approval-based flow) ────────────────────────────
+model PasswordResetRequest {
+  id           String              @id @default(uuid())
+  userId       String
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendorId     String?
+  fullName     String
+  email        String
+  newPasswordHash String           // pre-hashed, applied only after approval
+  status       ResetRequestStatus  @default(PENDING)
+  requestedAt  DateTime            @default(now())
+  reviewedAt   DateTime?
+  reviewedBy   String?
+  reviewNote   String?
+  expiresAt    DateTime            // 24 hours
+  token        String              @unique // secure token for approval link
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("password_reset_requests")
+}
+
+enum ResetRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}

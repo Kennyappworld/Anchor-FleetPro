@@ -1,0 +1,280 @@
+const router = require('express').Router();
+const { authenticate, requireRole } = require('../middleware/auth');
+const prisma = require('../config/prisma');
+
+router.use(authenticate, requireRole(['SUPER_ADMIN']));
+
+// GET /api/admin/tenants
+router.get('/tenants', async (req, res, next) => {
+  try {
+    const tenants = await prisma.tenant.findMany({
+      include: {
+        oemCompanies: { include: { _count: { select: { vendors: true } } } },
+        _count: { select: { oemCompanies: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: tenants });
+  } catch (err) { next(err); }
+});
+
+// POST /api/admin/tenants
+router.post('/tenants', async (req, res, next) => {
+  try {
+    const { name, slug, oemName, oemEmail } = req.body;
+    const tenant = await prisma.tenant.create({
+      data: {
+        name, slug: slug.toLowerCase().replace(/\s+/g, '-'),
+        oemCompanies: { create: { name: oemName, contactEmail: oemEmail, planTier: 'ENTERPRISE' } },
+      },
+      include: { oemCompanies: true },
+    });
+    await logAction(req, 'TENANT_CREATED', 'Tenant', tenant.id);
+    res.status(201).json({ success: true, data: tenant });
+  } catch (err) { next(err); }
+});
+
+// GET /api/admin/overview
+router.get('/overview', async (req, res, next) => {
+  try {
+    const [tenants, vendors, vehicles, jobs, revenue] = await Promise.all([
+      prisma.tenant.count(),
+      prisma.vendor.count(),
+      prisma.vehicle.count(),
+      prisma.jobRequest.count(),
+      prisma.invoice.aggregate({ where: { paymentConfirmed: true }, _sum: { totalAmount: true } }),
+    ]);
+    res.json({ success: true, data: { tenants, vendors, vehicles, jobs, totalRevenue: revenue._sum.totalAmount || 0 } });
+  } catch (err) { next(err); }
+});
+
+// GET /api/admin/activity
+router.get('/activity', async (req, res, next) => {
+  try {
+    const { limit = 100, hideCost = false } = req.query;
+    const logs = await prisma.auditLog.findMany({
+      take: +limit,
+      include: { user: { select: { fullName: true, email: true, role: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json({ success: true, data: logs, costHidden: hideCost === 'true' });
+  } catch (err) { next(err); }
+});
+
+// POST /api/admin/tenants/:id/deactivate
+router.post('/tenants/:id/deactivate', async (req, res, next) => {
+  try {
+    await prisma.tenant.update({ where: { id: req.params.id }, data: { active: false } });
+    await logAction(req, 'TENANT_DEACTIVATED', 'Tenant', req.params.id);
+    res.json({ success: true, message: 'Tenant deactivated' });
+  } catch (err) { next(err); }
+});
+
+// POST /api/admin/backup/run — Super Admin manually triggers Google Drive backup
+router.post('/backup/run', requireRole(['SUPER_ADMIN']), async (req, res) => {
+  const { triggerManualBackup } = require('../services/googleDriveBackup');
+  return triggerManualBackup(req, res);
+});
+
+// GET /api/admin/backup/status — check if backup is configured
+router.get('/backup/status', requireRole(['SUPER_ADMIN']), (req, res) => {
+  res.json({
+    success: true,
+    configured: !!(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_PRIVATE_KEY),
+    hasFolderId: !!process.env.GOOGLE_DRIVE_FOLDER_ID,
+    schedule: 'Every Sunday at 2:00 AM WAT',
+    notifyEmail: process.env.BACKUP_NOTIFY_EMAIL || process.env.SENDGRID_FROM_EMAIL || null,
+  });
+});
+
+// POST /api/admin/test-email — Super Admin sends test email
+router.post('/test-email', async (req, res) => {
+  try {
+    const { sendEmail } = require('../services/emailService');
+    const { to } = req.body;
+    if (!to) return res.status(400).json({ success: false, error: 'Email address required' });
+
+    const sent = await sendEmail({
+      to,
+      subject: '✅ FleetAnchor Pro — Email Delivery Test',
+      html: `
+        <div style="font-family:'Segoe UI',Arial,sans-serif;max-width:560px;margin:0 auto">
+          <div style="background:#0A1628;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+            <div style="font-size:24px;font-weight:800;color:#F5A623">⚓ FleetAnchor Pro</div>
+            <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:1px">EMAIL DELIVERY TEST</div>
+          </div>
+          <div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+            <h2 style="color:#1A6A3A;margin-top:0">✅ Email is working!</h2>
+            <p style="color:#333">This is a test email from your <strong>FleetAnchor Pro</strong> platform.</p>
+            <p style="color:#333">If you received this, SendGrid is correctly configured and all transactional emails will be delivered.</p>
+            <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin:20px 0">
+              <p style="margin:0 0 8px;font-weight:700;color:#0A1628;font-size:13px">📊 System Status</p>
+              <table style="width:100%;font-size:12px">
+                <tr><td style="color:#666;padding:4px 0;width:40%">Sent at</td><td style="font-weight:600">${new Date().toLocaleString('en-NG', { timeZone: 'Africa/Lagos' })} WAT</td></tr>
+                <tr><td style="color:#666;padding:4px 0">Provider</td><td style="font-weight:600">SendGrid SMTP</td></tr>
+                <tr><td style="color:#666;padding:4px 0">From</td><td style="font-weight:600">${process.env.SENDGRID_FROM_EMAIL || 'not set'}</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      `,
+    });
+
+    if (sent) {
+      res.json({ success: true, message: `Test email sent to ${to}` });
+    } else {
+      const hasKey = !!process.env.SENDGRID_API_KEY;
+      const hasFrom = !!process.env.SENDGRID_FROM_EMAIL;
+      res.status(500).json({
+        success: false,
+        error: 'Email failed to send — check Railway Deploy Logs for the exact error',
+        debug: {
+          SENDGRID_API_KEY: hasKey ? `set (starts: ${process.env.SENDGRID_API_KEY.slice(0,8)}...)` : 'NOT SET',
+          SENDGRID_FROM_EMAIL: hasFrom ? process.env.SENDGRID_FROM_EMAIL : 'NOT SET',
+          hint: !hasKey ? 'Add SENDGRID_API_KEY to Railway variables' : !hasFrom ? 'Add SENDGRID_FROM_EMAIL to Railway variables' : 'Key and From are set — check SendGrid sender verification at app.sendgrid.com/settings/sender_auth',
+        },
+      });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/alerts/check-service — manually trigger service due alerts
+router.post('/alerts/check-service', async (req, res) => {
+  try {
+    const { checkServiceAlerts } = require('../services/cronService');
+    const result = await checkServiceAlerts();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/reports/send-monthly — manually trigger monthly reports
+router.post('/reports/send-monthly', async (req, res) => {
+  try {
+    const { sendMonthlyReports } = require('../services/monthlyReportService');
+    const result = await sendMonthlyReports();
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/reports/preview — preview report for a specific vendor
+router.post('/reports/preview', async (req, res) => {
+  try {
+    const { vendorId, month, year } = req.body;
+    const vendor = await prisma.vendor.findUnique({
+      where: { id: vendorId },
+      include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 1 } },
+    });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+    const { generateMonthlyReport, buildReportEmail } = require('../services/monthlyReportService');
+    const report = await generateMonthlyReport(vendor, month || new Date().getMonth() || 12, year || new Date().getFullYear());
+    const html = buildReportEmail(report);
+    res.json({ success: true, data: report, html });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/compliance/trigger — manually trigger compliance alerts
+router.post('/compliance/trigger', async (req, res) => {
+  try {
+    const { checkComplianceAlerts } = require('../services/complianceAlertService');
+    const result = await checkComplianceAlerts();
+    res.json({ success: true, data: result, message: `Compliance alerts triggered — ${result.sent} vendor batches sent` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/service-alerts/trigger — manually trigger service alerts (batched)
+router.post('/service-alerts/trigger', async (req, res) => {
+  try {
+    const { checkServiceAlertsBatched } = require('../services/complianceAlertService');
+    const result = await checkServiceAlertsBatched();
+    res.json({ success: true, data: result, message: `Service alerts triggered — ${result.alerted} vehicles alerted` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/driver-licences/trigger — manually trigger driver licence alerts
+router.post('/driver-licences/trigger', async (req, res) => {
+  try {
+    const { checkDriverLicenceAlerts } = require('../services/complianceAlertService');
+    const result = await checkDriverLicenceAlerts();
+    res.json({ success: true, data: result, message: `Driver licence alerts triggered -- ${result.sent} vendor batches sent` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/admin/demo/reset — wipe all demo/dummy data for a vendor (Super Admin only)
+router.post('/demo/reset', async (req, res) => {
+  try {
+    const { vendorId } = req.body;
+    if (!vendorId) return res.status(400).json({ success: false, error: 'vendorId required' });
+
+    // Verify vendor exists
+    const vendor = await prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
+
+    // Delete in correct dependency order
+    // 1. Job-related: timelines, estimates, invoices, job requests
+    const vehicleIds = (await prisma.vehicle.findMany({ where: { vendorId }, select: { id: true } })).map(v => v.id);
+
+    let deletedJobs = 0;
+    if (vehicleIds.length > 0) {
+      const jobIds = (await prisma.jobRequest.findMany({ where: { vehicleId: { in: vehicleIds } }, select: { id: true } })).map(j => j.id);
+      if (jobIds.length > 0) {
+        await prisma.jobTimeline.deleteMany({ where: { jobId: { in: jobIds } } });
+        await prisma.estimate.deleteMany({ where: { jobId: { in: jobIds } } });
+        await prisma.invoice.deleteMany({ where: { jobRequestId: { in: jobIds } } });
+        await prisma.jobRequest.deleteMany({ where: { id: { in: jobIds } } });
+        deletedJobs = jobIds.length;
+      }
+    }
+
+    // 2. Vehicle documents
+    const deletedDocs = await prisma.vehicleDocument.deleteMany({ where: { vendorId } });
+
+    // 3. Driver licences
+    const deletedLicences = await prisma.driverLicence.deleteMany({ where: { vendorId } });
+
+    // 4. Vehicles
+    const deletedVehicles = await prisma.vehicle.deleteMany({ where: { vendorId } });
+
+    res.json({
+      success: true,
+      message: `Demo data reset for ${vendor.companyName}`,
+      data: {
+        vehicles: deletedVehicles.count,
+        documents: deletedDocs.count,
+        licences: deletedLicences.count,
+        jobs: deletedJobs,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/admin/demo/vendors — list all vendors for reset dropdown
+router.get('/demo/vendors', async (req, res) => {
+  try {
+    const vendors = await prisma.vendor.findMany({
+      where: { deletedAt: null },
+      select: { id: true, companyName: true, contactEmail: true },
+      orderBy: { companyName: 'asc' },
+    });
+    res.json({ success: true, data: vendors });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+module.exports = router;
