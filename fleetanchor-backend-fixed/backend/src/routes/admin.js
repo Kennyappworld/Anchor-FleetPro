@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const { authenticate, requireRole } = require('../middleware/auth');
 const prisma = require('../config/prisma');
+const { logAction } = require('../services/auditService');
 
 router.use(authenticate, requireRole(['SUPER_ADMIN']));
 
@@ -91,8 +92,8 @@ router.get('/backup/status', requireRole(['SUPER_ADMIN']), (req, res) => {
 router.post('/test-email', async (req, res) => {
   try {
     const { sendEmail } = require('../services/emailService');
-    const { to } = req.body;
-    if (!to) return res.status(400).json({ success: false, error: 'Email address required' });
+    const to = String(req.body.to || '').trim();
+    if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(to)) return res.status(400).json({ success: false, error: 'Valid email address required' });
 
     const sent = await sendEmail({
       to,
@@ -129,7 +130,7 @@ router.post('/test-email', async (req, res) => {
         success: false,
         error: 'Email failed to send — check Railway Deploy Logs for the exact error',
         debug: {
-          SENDGRID_API_KEY: hasKey ? `set (starts: ${process.env.SENDGRID_API_KEY.slice(0,8)}...)` : 'NOT SET',
+          SENDGRID_API_KEY: hasKey ? 'set' : 'NOT SET', // never echo any part of a secret
           SENDGRID_FROM_EMAIL: hasFrom ? process.env.SENDGRID_FROM_EMAIL : 'NOT SET',
           hint: !hasKey ? 'Add SENDGRID_API_KEY to Railway variables' : !hasFrom ? 'Add SENDGRID_FROM_EMAIL to Railway variables' : 'Key and From are set — check SendGrid sender verification at app.sendgrid.com/settings/sender_auth',
         },
@@ -233,7 +234,7 @@ router.post('/demo/reset', async (req, res) => {
       if (jobIds.length > 0) {
         await prisma.jobTimeline.deleteMany({ where: { jobId: { in: jobIds } } });
         await prisma.estimate.deleteMany({ where: { jobId: { in: jobIds } } });
-        await prisma.invoice.deleteMany({ where: { jobRequestId: { in: jobIds } } });
+        await prisma.invoice.deleteMany({ where: { jobId: { in: jobIds } } });
         await prisma.jobRequest.deleteMany({ where: { id: { in: jobIds } } });
         deletedJobs = jobIds.length;
       }
@@ -248,6 +249,7 @@ router.post('/demo/reset', async (req, res) => {
     // 4. Vehicles
     const deletedVehicles = await prisma.vehicle.deleteMany({ where: { vendorId } });
 
+    await logAction(req, 'DEMO_DATA_RESET', 'Vendor', vendorId, { vehicles: deletedVehicles.count, jobs: deletedJobs });
     res.json({
       success: true,
       message: `Demo data reset for ${vendor.companyName}`,

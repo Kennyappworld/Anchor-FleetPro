@@ -5,7 +5,7 @@ import { authService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
 export default function ChangePasswordModal({ forced = false }) {
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, setTokens } = useAuthStore();
   const [current, setCurrent] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -16,7 +16,7 @@ export default function ChangePasswordModal({ forced = false }) {
   if (!forced && !user?.mustChangePassword) return null;
 
   const checks = {
-    length: newPw.length >= 8,
+    length: newPw.length >= 12,
     upper: /[A-Z]/.test(newPw),
     number: /[0-9]/.test(newPw),
     match: newPw === confirm && newPw.length > 0,
@@ -28,7 +28,9 @@ export default function ChangePasswordModal({ forced = false }) {
     if (!strong) { toast.error('Password requirements not met'); return; }
     setLoading(true);
     try {
-      await authService.changePassword(current, newPw);
+      const res = await authService.changePassword(current, newPw);
+      // The server signs out every other session and hands this one fresh tokens.
+      if (res.data?.accessToken) setTokens(res.data.accessToken, res.data.refreshToken);
       setDone(true);
       // Update store so banner disappears
       setUser({ ...user, mustChangePassword: false });

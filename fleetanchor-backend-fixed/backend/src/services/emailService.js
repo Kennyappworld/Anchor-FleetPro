@@ -1,5 +1,7 @@
 const nodemailer = require('nodemailer');
 const logger = require('../config/logger');
+const prisma = require('../config/prisma');
+const { escHtml: e } = require('../utils/sanitize');
 
 // Lazy transporter — built on first use so env vars are always loaded
 let _transporter = null;
@@ -83,7 +85,7 @@ const send = async ({ to, subject, html }) => {
     return false;
   }
   const from = getFrom();
-  logger.info(`Email attempting: "${subject}" → ${to} | from: ${from} | key starts: ${(process.env.SENDGRID_API_KEY||'').slice(0,10)}...`);
+  logger.info(`Email attempting: "${subject}" → ${to} | from: ${from}`);
   try {
     const info = await transporter.sendMail({ from, to, subject, html });
     logger.info(`Email sent OK: ${subject} → ${to} [${info.messageId || 'no-id'}]`);
@@ -102,7 +104,7 @@ exports.sendPasswordReset = ({ to, name, otp }) => send({
   subject: 'FleetAnchor Pro — Password Reset Code',
   html: baseTemplate(`
     <div class="title">Reset your password</div>
-    <p>Hi ${name},</p>
+    <p>Hi ${e(name)},</p>
     <p>Use the code below to reset your FleetAnchor Pro password:</p>
     <div class="otp-box">${otp}</div>
     <p style="font-size:12px;color:#888;text-align:center">This code expires in <strong>15 minutes</strong>.</p>
@@ -116,11 +118,11 @@ exports.sendWelcome = ({ to, name, role, tempPassword }) => send({
   subject: 'Welcome to FleetAnchor Pro — Your account is ready',
   html: baseTemplate(`
     <div class="title">Welcome to FleetAnchor Pro</div>
-    <p>Hi ${name},</p>
+    <p>Hi ${e(name)},</p>
     <p>Your account has been created. Here are your login details:</p>
-    <div class="row"><span class="label">Email</span><span class="value">${to}</span></div>
-    <div class="row"><span class="label">Temporary Password</span><span class="value">${tempPassword}</span></div>
-    <div class="row"><span class="label">Role</span><span class="value"><span class="pill pill-gold">${role.replace(/_/g, ' ')}</span></span></div>
+    <div class="row"><span class="label">Email</span><span class="value">${e(to)}</span></div>
+    <div class="row"><span class="label">Temporary Password</span><span class="value">${e(tempPassword)}</span></div>
+    <div class="row"><span class="label">Role</span><span class="value"><span class="pill pill-gold">${e(role.replace(/_/g, ' '))}</span></span></div>
     <br>
     <a href="${process.env.FRONTEND_URL || 'https://anchor-fleet-pro.vercel.app'}/login" class="btn">Login to FleetAnchor Pro</a>
     <p style="font-size:12px;color:#888">Please change your password after first login.</p>
@@ -136,11 +138,11 @@ exports.sendJobSubmittedNotification = async ({ job }) => {
       subject: `New Job Request — ${job.jobNumber}`,
       html: baseTemplate(`
         <div class="title">New Job Request</div>
-        <div class="row"><span class="label">Job Number</span><span class="value">${job.jobNumber}</span></div>
-        <div class="row"><span class="label">Vehicle</span><span class="value">${job.vehicle?.vin} · ${job.vehicle?.plateNumber}</span></div>
-        <div class="row"><span class="label">Vendor</span><span class="value">${job.vehicle?.vendor?.companyName}</span></div>
-        <div class="row"><span class="label">Category</span><span class="value">${job.category}</span></div>
-        <a href="${process.env.FRONTEND_URL}/jobs/${job.id}" class="btn">View Job Request</a>
+        <div class="row"><span class="label">Job Number</span><span class="value">${e(job.jobNumber)}</span></div>
+        <div class="row"><span class="label">Vehicle</span><span class="value">${e(job.vehicle?.vin)} · ${e(job.vehicle?.plateNumber)}</span></div>
+        <div class="row"><span class="label">Vendor</span><span class="value">${e(job.vehicle?.vendor?.companyName)}</span></div>
+        <div class="row"><span class="label">Category</span><span class="value">${e(job.category)}</span></div>
+        <a href="${process.env.FRONTEND_URL}/jobs/${e(job.id)}" class="btn">View Job Request</a>
       `),
     });
   }
@@ -153,8 +155,8 @@ exports.sendEstimateReady = async ({ job, vendorEmails }) => {
       subject: `Estimate Ready for Review — Job ${job.jobNumber}`,
       html: baseTemplate(`
         <div class="title">Estimate Ready for Your Approval</div>
-        <p>An estimate has been prepared for job <strong>${job.jobNumber}</strong>. Please review and approve or query it.</p>
-        <a href="${process.env.FRONTEND_URL}/jobs/${job.id}" class="btn">Review Estimate</a>
+        <p>An estimate has been prepared for job <strong>${e(job.jobNumber)}</strong>. Please review and approve or query it.</p>
+        <a href="${process.env.FRONTEND_URL}/jobs/${e(job.id)}" class="btn">Review Estimate</a>
       `),
     });
   }
@@ -167,11 +169,11 @@ exports.sendRepairComplete = async ({ job, vendorEmails }) => {
       subject: `Vehicle Ready for Pickup — ${job.vehicle?.plateNumber}`,
       html: baseTemplate(`
         <div class="title">Your vehicle is ready for pickup</div>
-        <div class="row"><span class="label">Vehicle</span><span class="value">${job.vehicle?.make} ${job.vehicle?.model} · ${job.vehicle?.plateNumber}</span></div>
-        <div class="row"><span class="label">Job Number</span><span class="value">${job.jobNumber}</span></div>
+        <div class="row"><span class="label">Vehicle</span><span class="value">${e(job.vehicle?.make)} ${e(job.vehicle?.model)} · ${e(job.vehicle?.plateNumber)}</span></div>
+        <div class="row"><span class="label">Job Number</span><span class="value">${e(job.jobNumber)}</span></div>
         <div class="row"><span class="label">Status</span><span class="value"><span class="pill pill-green">Repair Complete</span></span></div>
         <p>Please arrange payment and collection. An invoice has been generated.</p>
-        <a href="${process.env.FRONTEND_URL}/invoices?job=${job.id}" class="btn">View Invoice</a>
+        <a href="${process.env.FRONTEND_URL}/invoices?job=${e(job.id)}" class="btn">View Invoice</a>
       `),
     });
   }
@@ -182,8 +184,8 @@ exports.sendSubscriptionExpiry = async ({ to, name, daysLeft, plan }) => send({
   subject: `FleetAnchor Pro — Subscription expires in ${daysLeft} days`,
   html: baseTemplate(`
     <div class="title">Subscription Expiry Notice</div>
-    <p>Hi ${name},</p>
-    <p>Your <strong>${plan}</strong> subscription expires in <strong>${daysLeft} days</strong>.</p>
+    <p>Hi ${e(name)},</p>
+    <p>Your <strong>${e(plan)}</strong> subscription expires in <strong>${e(daysLeft)} days</strong>.</p>
     <a href="${process.env.FRONTEND_URL}/subscription" class="btn">Renew Subscription</a>
   `),
 });
@@ -193,9 +195,9 @@ exports.sendAccountSuspended = async ({ to, name, reason }) => send({
   subject: 'FleetAnchor Pro — Account Suspended',
   html: baseTemplate(`
     <div class="title" style="color:#E84B4B">Account Suspended</div>
-    <p>Hi ${name},</p>
+    <p>Hi ${e(name)},</p>
     <p>Your FleetAnchor Pro account has been suspended.</p>
-    <div class="row"><span class="label">Reason</span><span class="value">${reason || 'Policy violation or non-payment'}</span></div>
+    <div class="row"><span class="label">Reason</span><span class="value">${e(reason || 'Policy violation or non-payment')}</span></div>
     <p>Please contact <a href="mailto:support@fleetanchor.com">support@fleetanchor.com</a></p>
   `),
 });

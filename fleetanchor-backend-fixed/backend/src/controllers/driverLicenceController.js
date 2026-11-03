@@ -1,9 +1,10 @@
 const prisma = require('../config/prisma');
+const { resolveVendorId } = require('../utils/tenant');
 const logger = require('../config/logger');
 
 exports.list = async (req, res) => {
   try {
-    const vendorId = req.user.vendorId || req.query.vendorId;
+    const vendorId = await resolveVendorId(req.user, req.query.vendorId); // checked against the caller's OEM
     if (!vendorId) return res.status(400).json({ success: false, error: 'vendorId required' });
 
     const licences = await prisma.driverLicence.findMany({
@@ -20,7 +21,7 @@ exports.list = async (req, res) => {
     res.json({ success: true, data: enriched });
   } catch (err) {
     logger.error('driverLicence.list error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    { require('../config/logger').error(err.message); res.status(500).json({ success: false, error: 'Server error' }); }
   }
 };
 
@@ -54,7 +55,7 @@ exports.add = async (req, res) => {
     });
   } catch (err) {
     logger.error('driverLicence.add error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    { require('../config/logger').error(err.message); res.status(500).json({ success: false, error: 'Server error' }); }
   }
 };
 
@@ -87,7 +88,7 @@ exports.update = async (req, res) => {
     res.json({ success: true, data: { ...updated, daysUntilExpiry: Math.ceil((new Date(updated.expiryDate) - now) / (1000 * 60 * 60 * 24)) } });
   } catch (err) {
     logger.error('driverLicence.update error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    { require('../config/logger').error(err.message); res.status(500).json({ success: false, error: 'Server error' }); }
   }
 };
 
@@ -100,7 +101,7 @@ exports.remove = async (req, res) => {
     await prisma.driverLicence.delete({ where: { id } });
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    { require('../config/logger').error(err.message); res.status(500).json({ success: false, error: 'Server error' }); }
   }
 };
 
@@ -143,13 +144,14 @@ exports.bulkImport = async (req, res) => {
     res.json({ success: true, data: results });
   } catch (err) {
     logger.error('driverLicence.bulkImport error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    { require('../config/logger').error(err.message); res.status(500).json({ success: false, error: 'Server error' }); }
   }
 };
 
 exports.summary = async (req, res) => {
   try {
-    const vendorId = req.user.vendorId || req.params.vendorId;
+    const vendorId = await resolveVendorId(req.user, req.params.vendorId || req.query.vendorId);
+    if (!vendorId) return res.status(400).json({ success: false, error: 'A fleet you manage is required (vendorId)' });
     const now = new Date();
     const in30 = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
     const [total, expired, expiringSoon, compliant] = await Promise.all([
@@ -160,6 +162,6 @@ exports.summary = async (req, res) => {
     ]);
     res.json({ success: true, data: { total, expired, expiringSoon, compliant } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    { require('../config/logger').error(err.message); res.status(500).json({ success: false, error: 'Server error' }); }
   }
 };

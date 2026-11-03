@@ -190,7 +190,7 @@ async function checkServiceAlerts() {
   const byDate = await prisma.vehicle.findMany({
     where: {
       status: 'ACTIVE',
-      deletedAt: undefined,
+      vendor: { deletedAt: null },
       nextServiceDate: { lte: in30Days },
       serviceAlertSent: false,
     },

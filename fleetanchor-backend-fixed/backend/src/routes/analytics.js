@@ -4,12 +4,11 @@ const prisma = require('../config/prisma');
 
 router.use(authenticate, scopeToTenant);
 
-function tenantFilter(req) {
-  const { role, vendorId, tenantId } = req.user;
-  if (role === 'SUPER_ADMIN') return {};
-  if (['OEM_ADMIN','WORKSHOP_STAFF'].includes(role)) return { vehicle: { vendor: { oem: { tenantId } } } };
-  return { vehicle: { vendorId } };
-}
+const { jobWhere, vehicleWhere, viaJobWhere } = require('../utils/tenant');
+
+// All figures are scoped to the caller's OEM / fleet. Revenue used to be
+// summed across every tenant and shown to every OEM admin.
+const tenantFilter = (req) => jobWhere(req.user);
 
 // GET /api/analytics/dashboard
 router.get('/dashboard', requireRole(['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STAFF']), async (req, res, next) => {
@@ -19,20 +18,20 @@ router.get('/dashboard', requireRole(['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STAFF'
 
     const [totalJobs, activeJobs, completedThisMonth, revenue, topVehicles, byCategory] = await Promise.all([
       prisma.jobRequest.count({ where: tenantFilter(req) }),
-      prisma.jobRequest.count({ where: { ...tenantFilter(req), status: { in: ['SUBMITTED','DIAGNOSED','ESTIMATE_SENT','APPROVED','REPAIR_STARTED'] } } }),
-      prisma.jobRequest.count({ where: { ...tenantFilter(req), status: 'COMPLETED', completedAt: { gte: monthStart } } }),
-      prisma.invoice.aggregate({ where: { paymentConfirmed: true, jobRequest: tenantFilter(req) }, _sum: { totalAmount: true } }),
+      prisma.jobRequest.count({ where: { ...tenantFilter(req), status: { in: ['SUBMITTED','DIAGNOSED','ESTIMATE_SENT','ESTIMATE_APPROVED','REPAIR_STARTED'] } } }),
+      prisma.jobRequest.count({ where: { ...tenantFilter(req), status: { in: ['REPAIR_COMPLETE', 'AWAITING_PAYMENT', 'CLOSED'] }, completedAt: { gte: monthStart } } }),
+      prisma.invoice.aggregate({ where: { paymentConfirmed: true, ...viaJobWhere(req.user) }, _sum: { totalAmount: true } }),
       prisma.vehicle.findMany({
         take: 5,
         orderBy: { jobRequests: { _count: 'desc' } },
-        where: req.user.role === 'SUPER_ADMIN' ? {} : req.user.role === 'OEM_ADMIN' ? { vendor: { oem: { tenantId: req.user.tenantId } } } : { vendorId: req.user.vendorId },
+        where: vehicleWhere(req.user),
       }),
       prisma.jobRequest.groupBy({ by: ['category'], _count: true, where: tenantFilter(req) }),
     ]);
 
     // Extra stats for dashboard
     const [inRepair, totalVendors, monthlyRevenue] = await Promise.all([
-      prisma.vehicle.count({ where: { status: 'IN_REPAIR', ...(req.user.role !== 'SUPER_ADMIN' ? { vendorId: req.user.vendorId } : {}) } }),
+      prisma.vehicle.count({ where: { status: 'IN_REPAIR', ...vehicleWhere(req.user) } }),
       req.user.role === 'SUPER_ADMIN' ? prisma.vendor.count({ where: { deletedAt: null, status: 'ACTIVE' } }) : Promise.resolve(0),
       (async () => {
         const months = [];
@@ -41,7 +40,7 @@ router.get('/dashboard', requireRole(['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STAFF'
           const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
           const agg = await prisma.invoice.aggregate({
-            where: { paymentConfirmed: true, paidAt: { gte: mStart, lte: mEnd } },
+            where: { paymentConfirmed: true, paidAt: { gte: mStart, lte: mEnd }, ...viaJobWhere(req.user) },
             _sum: { totalAmount: true },
           });
           months.push({ month: mStart.toLocaleString('en', { month: 'short' }), revenue: agg._sum.totalAmount || 0 });
@@ -81,7 +80,7 @@ router.get('/monthly-revenue', requireRole(['SUPER_ADMIN','OEM_ADMIN']), async (
       const start = new Date(d.getFullYear(), d.getMonth(), 1);
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
       const agg = await prisma.invoice.aggregate({
-        where: { paymentConfirmed: true, paidAt: { gte: start, lte: end } },
+        where: { paymentConfirmed: true, paidAt: { gte: start, lte: end }, ...viaJobWhere(req.user) },
         _sum: { totalAmount: true },
       });
       months.push({ month: start.toLocaleDateString('en-NG', { month: 'short', year: '2-digit' }), revenue: agg._sum.totalAmount || 0 });
@@ -93,9 +92,7 @@ router.get('/monthly-revenue', requireRole(['SUPER_ADMIN','OEM_ADMIN']), async (
 // GET /api/analytics/top-vehicles
 router.get('/top-vehicles', requireRole(['SUPER_ADMIN','OEM_ADMIN','WORKSHOP_STAFF']), async (req, res, next) => {
   try {
-    const filter = req.user.role === 'SUPER_ADMIN' ? {}
-      : req.user.role === 'OEM_ADMIN' ? { vendor: { oem: { tenantId: req.user.tenantId } } }
-      : { vendorId: req.user.vendorId };
+    const filter = vehicleWhere(req.user);
     const vehicles = await prisma.vehicle.findMany({
       where: filter, take: 10,
       include: { _count: { select: { jobRequests: true } } },
@@ -129,12 +126,12 @@ router.get('/vendor-dashboard', async (req, res, next) => {
       prisma.vehicle.count({ where: { vendorId, status: 'IN_REPAIR' } }),
       prisma.jobRequest.count({ where: { vehicle: { vendorId }, status: { in: ['SUBMITTED','DIAGNOSED','ESTIMATE_SENT','ESTIMATE_APPROVED','REPAIR_STARTED'] } } }),
       prisma.jobRequest.count({ where: { vehicle: { vendorId }, status: 'REPAIR_COMPLETE', completedAt: { gte: monthStart } } }),
-      prisma.invoice.aggregate({ where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true }, _sum: { totalAmount: true } }),
-      prisma.invoice.aggregate({ where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: monthStart } }, _sum: { totalAmount: true } }),
-      prisma.invoice.aggregate({ where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: lastMonthStart, lte: lastMonthEnd } }, _sum: { totalAmount: true } }),
+      prisma.invoice.aggregate({ where: { job: { vehicle: { vendorId } }, paymentConfirmed: true }, _sum: { totalAmount: true } }),
+      prisma.invoice.aggregate({ where: { job: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: monthStart } }, _sum: { totalAmount: true } }),
+      prisma.invoice.aggregate({ where: { job: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: lastMonthStart, lte: lastMonthEnd } }, _sum: { totalAmount: true } }),
       prisma.jobRequest.groupBy({ by: ['status'], _count: true, where: { vehicle: { vendorId } } }),
       prisma.jobRequest.groupBy({ by: ['category'], _count: true, where: { vehicle: { vendorId } }, orderBy: { _count: { category: 'desc' } }, take: 5 }),
-      prisma.jobRequest.findMany({ where: { vehicle: { vendorId } }, include: { vehicle: { select: { plateNumber: true, make: true, model: true } } }, orderBy: { createdAt: 'desc' }, take: 5 }),
+      prisma.jobRequest.findMany({ where: { vehicle: { vendorId } }, include: { vehicle: { select: { plateNumber: true, make: true, model: true } } }, orderBy: { submittedAt: 'desc' }, take: 5 }),
       prisma.vehicleDocument.count({ where: { vendorId, expiryDate: { gte: now, lte: in30 } } }),
       prisma.vehicleDocument.count({ where: { vendorId, expiryDate: { lt: now } } }),
       prisma.driverLicence.count({ where: { vendorId, expiryDate: { gte: now, lte: in30 } } }),
@@ -148,7 +145,7 @@ router.get('/vendor-dashboard', async (req, res, next) => {
       const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
       const agg = await prisma.invoice.aggregate({
-        where: { jobRequest: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: mStart, lte: mEnd } },
+        where: { job: { vehicle: { vendorId } }, paymentConfirmed: true, paidAt: { gte: mStart, lte: mEnd } },
         _sum: { totalAmount: true },
       });
       costTrend.push({

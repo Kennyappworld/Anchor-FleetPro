@@ -22,6 +22,19 @@ const analyticsRoutes = require("./routes/analytics");
 const webhookRoutes = require("./routes/webhooks");
 const adminRoutes = require("./routes/admin");
 
+// Refuse to start with missing or weak signing secrets — a blank JWT secret
+// would make every token forgeable or every sign-in fail.
+for (const key of ["JWT_SECRET", "JWT_REFRESH_SECRET"]) {
+  if (!process.env[key] || process.env[key].length < 32) {
+    console.error(`FATAL: ${key} must be set to at least 32 characters.`);
+    process.exit(1);
+  }
+}
+if (process.env.JWT_SECRET === process.env.JWT_REFRESH_SECRET) {
+  console.error("FATAL: JWT_SECRET and JWT_REFRESH_SECRET must be different.");
+  process.exit(1);
+}
+
 const app = express();
 app.disable("x-powered-by"); // hide Express fingerprint
 const PORT = process.env.PORT || 5000;
@@ -42,18 +55,20 @@ const globalLimiter = rateLimit({
 });
 app.use("/api/", globalLimiter);
 
+// Only the web app's own addresses may call the API from a browser.
+// Extra origins: CORS_ORIGINS="https://a.example,https://b.example".
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   "https://anchor-fleet-pro.vercel.app",
-  "http://localhost:3000",
-  "http://localhost:5173",
-].filter(Boolean);
+  ...(process.env.CORS_ORIGINS || "").split(","),
+  ...(process.env.NODE_ENV === "production" ? [] : ["http://localhost:3000", "http://localhost:5173"]),
+].map((o) => (o || "").trim().replace(/\/$/, "")).filter(Boolean);
 
 const corsOptions = {
   origin: (origin, cb) => {
-    // Allow requests with no origin (mobile apps, curl, server-to-server)
+    // Requests with no Origin header (mobile app, server-to-server) are not browser cross-site calls.
     if (!origin) return cb(null, true);
-    return cb(null, true); // Allow all origins temporarily
+    return cb(null, allowedOrigins.includes(origin));
   },
   methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
   allowedHeaders: ["Content-Type","Authorization","X-Device-Fingerprint"],
@@ -150,7 +165,8 @@ app.use("/api/compliance", require("./routes/compliance"));
 app.use("/api/driver-licences", require("./routes/driverLicences"));
 app.use("/api/inspections", require("./routes/inspections"));
 app.use("/api/platform", require("./routes/platform"));
-app.use("/api/setup", require("./routes/setup"));
+// /api/setup was removed: it created a super admin with a password written in this
+// public repository and ran `prisma db push --accept-data-loss`. Use `npm run seed`.
 
 app.use(notFoundHandler);
 app.use(errorHandler);

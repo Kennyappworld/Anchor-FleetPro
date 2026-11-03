@@ -1,33 +1,40 @@
 const prisma = require('../config/prisma');
+const { logAction } = require('../services/auditService');
+const { vehicleWhere, resolveVendorId } = require('../utils/tenant');
 
-// Determine vendor filter based on role
-function tenantFilter(req) {
-  const { role, vendorId, tenantId } = req.user;
-  if (role === 'SUPER_ADMIN') return {};
-  if (role === 'OEM_ADMIN' || role === 'WORKSHOP_STAFF') return { vendor: { oem: { tenantId } } };
-  // FLEET_MANAGER, MAINTENANCE_SUPERVISOR, FIELD_AGENT — own vendor only
-  return { vendorId };
-}
+// Scoped by vendor / OEM (the old filter used a tenantId that was never set,
+// which let OEM-side users see every tenant's vehicles).
+const tenantFilter = (req) => vehicleWhere(req.user);
+
+const pageArgs = (q) => {
+  const take = Math.min(Math.max(parseInt(q.limit) || 50, 1), 200);
+  const page = Math.max(parseInt(q.page) || 1, 1);
+  return { take, page, skip: (page - 1) * take };
+};
+
+// The vehicle in the URL, if the caller may touch it.
+const findOwnVehicle = (req) => prisma.vehicle.findFirst({ where: { id: req.params.id, ...tenantFilter(req) } });
 
 exports.list = async (req, res, next) => {
   try {
-    const { page = 1, limit = 50, status } = req.query;
-    const where = { ...tenantFilter(req), ...(status ? { status } : {}) };
+    const { status } = req.query;
+    const { take, page, skip } = pageArgs(req.query);
+    const where = { ...tenantFilter(req), ...(status ? { status: String(status) } : {}) };
     const [vehicles, total] = await Promise.all([
       prisma.vehicle.findMany({
-        where, skip: (page - 1) * limit, take: +limit,
+        where, skip, take,
         include: { vendor: { select: { companyName: true } }, _count: { select: { jobRequests: true } } },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { registeredAt: 'desc' },
       }),
       prisma.vehicle.count({ where }),
     ]);
-    res.json({ success: true, data: vehicles, total, page: +page, pages: Math.ceil(total / limit) });
+    res.json({ success: true, data: vehicles, total, page, pages: Math.ceil(total / take) });
   } catch (err) { next(err); }
 };
 
 exports.search = async (req, res, next) => {
   try {
-    const { q } = req.query;
+    const q = String(req.query.q || '').trim().slice(0, 64);
     if (!q) return res.json({ success: true, data: [] });
     const where = {
       ...tenantFilter(req),
@@ -72,12 +79,12 @@ exports.history = async (req, res, next) => {
     const jobs = await prisma.jobRequest.findMany({
       where: { vehicleId: req.params.id },
       include: {
-        estimates: { select: { partsTotal: true, labourTotal: true, totalCost: true, status: true } },
+        estimates: { select: { partsCost: true, labourCost: true, totalCost: true, status: true } },
         invoices: { select: { totalAmount: true, paymentConfirmed: true, paidAt: true } },
         createdBy: { select: { fullName: true } },
-        timeline: { orderBy: { createdAt: 'asc' } },
+        timelines: { orderBy: { createdAt: 'asc' } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { submittedAt: 'desc' },
     });
 
     const shouldHideCost = isFieldAgent || hideCost === 'true';
@@ -87,7 +94,7 @@ exports.history = async (req, res, next) => {
         const { estimates, invoices, ...rest } = j;
         return { ...rest, estimates: [], invoices: [] };
       }
-      return j;
+      return { ...j, timeline: j.timelines }; // `timeline` kept for older screens
     });
 
     await logAction(req, 'VEHICLE_HISTORY_VIEWED', 'Vehicle', req.params.id);
@@ -98,8 +105,8 @@ exports.history = async (req, res, next) => {
 exports.create = async (req, res, next) => {
   try {
     const { vin, plateNumber, make, model, year, engineNumber, vendorId } = req.body;
-    const vid = req.user.role === 'FLEET_MANAGER' ? req.user.vendorId : vendorId;
-    if (!vid) return res.status(400).json({ success: false, error: 'vendorId required' });
+    const vid = await resolveVendorId(req.user, vendorId);
+    if (!vid) return res.status(400).json({ success: false, error: 'A fleet you manage is required (vendorId)' });
 
     const existing = await prisma.vehicle.findFirst({ where: { vin: vin.toUpperCase() } });
     if (existing) return res.status(409).json({ success: false, error: 'VIN already registered' });
@@ -116,7 +123,8 @@ exports.update = async (req, res, next) => {
   try {
     const allowed = ['plateNumber','make','model','year','engineNumber','status'];
     const data = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
-    const vehicle = await prisma.vehicle.findFirst({ where: { id: req.params.id, ...tenantFilter(req) } });
+    if (data.year !== undefined) data.year = parseInt(data.year) || undefined;
+    const vehicle = await findOwnVehicle(req);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found' });
     const updated = await prisma.vehicle.update({ where: { id: req.params.id }, data });
     await logAction(req, 'VEHICLE_UPDATED', 'Vehicle', req.params.id);
@@ -126,12 +134,8 @@ exports.update = async (req, res, next) => {
 
 exports.remove = async (req, res, next) => {
   try {
-    const where = { id: req.params.id };
-    // Ownership check: non-admins can only delete their own vendor's vehicles
-    if (!['SUPER_ADMIN', 'OEM_ADMIN'].includes(req.user.role)) {
-      where.vendorId = req.user.vendorId;
-    }
-    const vehicle = await prisma.vehicle.findFirst({ where });
+    // OEM admins used to be able to delete any tenant's vehicle.
+    const vehicle = await findOwnVehicle(req);
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found or access denied' });
     await prisma.vehicle.delete({ where: { id: req.params.id } });
     await logAction(req, 'VEHICLE_DELETED', 'Vehicle', req.params.id);
@@ -142,9 +146,8 @@ exports.remove = async (req, res, next) => {
 exports.bulkImport = async (req, res, next) => {
   try {
     const { vehicles } = req.body;
-    const { role, vendorId } = req.user;
-    const vid = role === 'FLEET_MANAGER' ? vendorId : req.body.vendorId;
-    if (!vid) return res.status(400).json({ success: false, error: 'vendorId required for bulk import' });
+    const vid = await resolveVendorId(req.user, req.body.vendorId);
+    if (!vid) return res.status(400).json({ success: false, error: 'A fleet you manage is required (vendorId)' });
 
     const results = { created: 0, skipped: 0, errors: [] };
     for (const v of vehicles) {
@@ -152,6 +155,9 @@ exports.bulkImport = async (req, res, next) => {
         const vin = (v.vin || v.VIN || '').toString().trim().toUpperCase();
         const plate = (v.plateNumber || v.plate || v['Plate Number'] || '').toString().trim().toUpperCase();
         if (!vin || !plate) { results.skipped++; continue; }
+        // Never take over a vehicle that is registered to another fleet.
+        const owner = await prisma.vehicle.findUnique({ where: { vin }, select: { vendorId: true } });
+        if (owner && owner.vendorId !== vid) { results.skipped++; results.errors.push({ vin, error: 'VIN is registered to another fleet' }); continue; }
         await prisma.vehicle.upsert({
           where: { vin },
           create: {
@@ -172,7 +178,7 @@ exports.bulkImport = async (req, res, next) => {
         });
         results.created++;
       } catch (e) {
-        results.errors.push({ row: v, error: e.message });
+        results.errors.push({ vin: (v && (v.vin || v.VIN)) || null, error: 'Could not import this row' });
         results.skipped++;
       }
     }
@@ -188,6 +194,7 @@ exports.updateServiceSchedule = async (req, res, next) => {
       currentOdometer, serviceIntervalDays, serviceIntervalKm,
     } = req.body;
 
+    if (!(await findOwnVehicle(req))) return res.status(404).json({ success: false, error: 'Vehicle not found' });
     const last = lastServiceDate ? new Date(lastServiceDate) : null;
     const nextDate = last && serviceIntervalDays
       ? new Date(last.getTime() + serviceIntervalDays * 24 * 60 * 60 * 1000)
@@ -220,11 +227,13 @@ exports.updateServiceSchedule = async (req, res, next) => {
 exports.updateOdometer = async (req, res, next) => {
   try {
     const { currentOdometer } = req.body;
-    if (!currentOdometer) return res.status(400).json({ success: false, error: 'currentOdometer required' });
+    const odo = parseInt(currentOdometer);
+    if (!Number.isFinite(odo) || odo < 0) return res.status(400).json({ success: false, error: 'currentOdometer required' });
+    if (!(await findOwnVehicle(req))) return res.status(404).json({ success: false, error: 'Vehicle not found' });
 
     const vehicle = await prisma.vehicle.update({
       where: { id: req.params.id },
-      data: { currentOdometer: parseInt(currentOdometer) },
+      data: { currentOdometer: odo },
     });
     res.json({ success: true, data: vehicle });
   } catch (err) { next(err); }

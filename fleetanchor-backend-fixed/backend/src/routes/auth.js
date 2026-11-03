@@ -17,8 +17,14 @@ const resetLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: parseInt(process.env.RESET_RATE_LIMIT_MAX) || 3,
   message: { success: false, error: 'Too many reset requests. Try again in 1 hour.' },
-  keyGenerator: (req) => req.body.email || req.ip,
+  // Per IP *and* email, so one person can't lock someone else out by spamming their email.
+  keyGenerator: (req) => `${req.ip}|${String(req.body.email || '').toLowerCase()}`,
 });
+
+const strongPassword = (field) => body(field)
+  .isLength({ min: 12 }).withMessage('Min 12 characters')
+  .matches(/[A-Z]/).withMessage('Must contain uppercase')
+  .matches(/[0-9]/).withMessage('Must contain number');
 
 const loginRules = [
   body('email').isEmail().normalizeEmail().withMessage('Valid email required'),
@@ -32,7 +38,10 @@ const forgotRules = [
 ];
 
 const resetRules = [
-  body('token').notEmpty().withMessage('Token required'),
+  body().custom((_, { req }) => {
+    if (!req.body.verifiedToken && !req.body.token) throw new Error('Token required');
+    return true;
+  }),
   body('password')
     .isLength({ min: 12 }).withMessage('Min 12 characters')
     .matches(/[A-Z]/).withMessage('Must contain uppercase')
@@ -62,7 +71,7 @@ const registerRules = [
 
 router.post('/login', authLimiter, loginRules, validate, authController.login);
 router.post('/logout', authenticate, authController.logout);
-router.post('/refresh', authController.refreshToken);
+router.post('/refresh', authLimiter, authController.refreshToken);
 router.post('/me', authenticate, authController.me);
 
 router.post('/forgot-password', resetLimiter, forgotRules, validate, authController.forgotPassword);
@@ -70,16 +79,17 @@ router.post('/verify-otp', authLimiter, verifyOtpRules, validate, authController
 router.post('/reset-password', authLimiter, resetRules, validate, authController.resetPassword);
 
 router.post('/2fa/setup', authenticate, authController.setup2FA);
-router.post('/2fa/verify', authenticate, authController.verify2FA);
-router.post('/2fa/disable', authenticate, authController.disable2FA);
+router.post('/2fa/verify', authLimiter, authenticate, authController.verify2FA);
+router.post('/2fa/disable', authLimiter, authenticate, authController.disable2FA);
 
 router.post('/register', authenticate, registerRules, validate, authController.register);
 
-router.get('/vendor-invite/:token', authController.checkVendorInvite);
+router.get('/vendor-invite/:token', authLimiter, authController.checkVendorInvite);
 router.post('/vendor-setup',
+  authLimiter,
   body('token').notEmpty(),
   body('fullName').trim().isLength({ min: 2 }),
-  body('password').isLength({ min: 8 }),
+  strongPassword('password'),
   validate,
   authController.acceptVendorInvite
 );
@@ -87,8 +97,9 @@ router.post('/vendor-setup',
 // Change password (authenticated — used for mustChangePassword flow)
 router.post('/change-password',
   authenticate,
+  authLimiter,
   body('currentPassword').notEmpty(),
-  body('newPassword').isLength({ min: 8 }),
+  strongPassword('newPassword'),
   validate,
   authController.changePassword
 );
@@ -96,16 +107,17 @@ router.post('/change-password',
 router.post('/request-reset',
   resetLimiter,
   body('email').isEmail().normalizeEmail(),
-  body('newPassword').isLength({ min: 8 }),
+  strongPassword('newPassword'),
   validate,
   authController.requestPasswordReset
 );
-router.get('/approve-reset/:token', authController.reviewPasswordReset);
+// POST, not GET: opening a link (or an email scanner fetching it) must not change anything.
+router.post('/approve-reset/:token', authLimiter, body('action').isIn(['approve', 'reject']), validate, authController.reviewPasswordReset);
 
 router.post('/issue-credentials',
   authenticate,
   body('userId').notEmpty(),
-  body('newPassword').optional().isLength({ min: 8 }),
+  body('newPassword').optional().isLength({ min: 12 }),
   validate,
   authController.issueCredentials
 );
@@ -115,15 +127,15 @@ router.get('/pending-resets',
   authenticate,
   async (req, res) => {
     try {
-      const { PrismaClient } = require('@prisma/client');
       const prisma = require('../config/prisma');
+      const { vendorOwnedWhere } = require('../utils/tenant');
       // Only managers and above can see pending resets
       const allowed = ['FLEET_MANAGER','MAINTENANCE_SUPERVISOR','OEM_ADMIN','SUPER_ADMIN'];
       if (!allowed.includes(req.user.role)) {
         return res.status(403).json({ success: false, error: 'Access denied' });
       }
-      const where = { status: 'PENDING', expiresAt: { gt: new Date() } };
-      if (req.user.vendorId) where.vendorId = req.user.vendorId;
+      // Scoped to the caller's own fleet / OEM (OEM admins used to see every tenant's requests).
+      const where = { status: 'PENDING', expiresAt: { gt: new Date() }, ...vendorOwnedWhere(req.user) };
       const requests = await prisma.passwordResetRequest.findMany({
         where,
         orderBy: { requestedAt: 'desc' },
@@ -135,7 +147,7 @@ router.get('/pending-resets',
       });
       res.json({ success: true, data: requests });
     } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(500).json({ success: false, error: 'Server error' });
     }
   }
 );

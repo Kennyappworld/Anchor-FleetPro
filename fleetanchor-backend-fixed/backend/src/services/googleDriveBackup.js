@@ -14,6 +14,9 @@
 
 const { google } = require('googleapis');
 const prisma = require('../config/prisma');
+const logger = require('../config/logger');
+const { Readable } = require('stream');
+const { sendEmail } = require('./emailService');
 
 function getGoogleAuth() {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
@@ -38,7 +41,7 @@ async function collectBackupData() {
     vendors, users, vehicles, jobRequests,
     estimates, invoices, subscriptions, auditLogs,
   ] = await Promise.all([
-    prisma.vendor.findMany({ include: { oem: { select: { name: true, tenantId: true } } } }),
+    prisma.vendor.findMany({ select: { id: true, oemId: true, companyName: true, contactEmail: true, contactPhone: true, address: true, status: true, trialEndsAt: true, deletedAt: true, createdAt: true, oem: { select: { name: true, tenantId: true } } } }), // no invite tokens in backups
     prisma.user.findMany({ select: { id: true, fullName: true, email: true, role: true, vendorId: true, oemId: true, active: true, createdAt: true } }),
     prisma.vehicle.findMany(),
     prisma.jobRequest.findMany(),

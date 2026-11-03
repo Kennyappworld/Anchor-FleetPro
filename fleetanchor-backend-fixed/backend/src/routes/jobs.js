@@ -19,7 +19,8 @@ router.post("/",
 
 router.patch("/:id/status",
   param("id").isUUID(),
-  body("status").isIn(["SUBMITTED","DIAGNOSED","ESTIMATE_SENT","ESTIMATE_APPROVED","ESTIMATE_QUERIED","ESTIMATE_REJECTED","APPROVED","REPAIR_STARTED","REPAIR_COMPLETE","COMPLETED","AWAITING_PAYMENT","PAYMENT_CONFIRMED","CLOSED","QUERIED","CANCELLED"]),
+  // Only the statuses that exist in the database (the others always failed with a server error).
+  body("status").isIn(["SUBMITTED","DIAGNOSED","ESTIMATE_SENT","ESTIMATE_APPROVED","ESTIMATE_QUERIED","REPAIR_STARTED","REPAIR_COMPLETE","AWAITING_PAYMENT","CLOSED"]),
   validate,
   jc.updateStatus
 );

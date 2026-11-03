@@ -5,12 +5,31 @@ const { totp } = require('otplib');
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
 const auditService = require('../services/auditService');
+const emailService = require('../services/emailService');
+const { escHtml } = require('../utils/sanitize');
+const { userWhere, isSuper, outranks } = require('../utils/tenant');
+
+const JWT_ALGS = ['HS256'];
+const MAX_OTP_TRIES = 5;
+const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', 12);
 
 const signAccess = (payload) =>
-  jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
+  jwt.sign(payload, process.env.JWT_SECRET, { algorithm: 'HS256', expiresIn: process.env.JWT_EXPIRES_IN || '15m' });
 
 const signRefresh = (payload) =>
-  jwt.sign(payload, process.env.JWT_REFRESH_SECRET, { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' });
+  jwt.sign({ ...payload, typ: 'refresh' }, process.env.JWT_REFRESH_SECRET, { algorithm: 'HS256', expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d' });
+
+// Constant-time string comparison (avoids leaking how many characters matched).
+const safeEqual = (a, b) => {
+  const x = Buffer.from(String(a || ''));
+  const y = Buffer.from(String(b || ''));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+};
+
+const issueTokens = (user) => ({
+  accessToken: signAccess({ userId: user.id, email: user.email, role: user.role, vendorId: user.vendorId, oemId: user.oemId }),
+  refreshToken: signRefresh({ userId: user.id }),
+});
 
 const hashToken = (token) =>
   crypto.createHash('sha256').update(token).digest('hex');
@@ -26,7 +45,9 @@ exports.login = async (req, res) => {
       include: { vendor: true, oem: true },
     });
 
-    if (!user || !user.active) {
+    if (!user || !user.active || user.deletedAt) {
+      // Same work as a real check so response time doesn't reveal which emails exist.
+      await bcrypt.compare(String(password), DUMMY_HASH);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
 
@@ -107,7 +128,7 @@ exports.refreshToken = async (req, res) => {
 
     let decoded;
     try {
-      decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+      decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, { algorithms: JWT_ALGS });
     } catch (err) {
       return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
     }
@@ -115,16 +136,16 @@ exports.refreshToken = async (req, res) => {
     // Verify user still exists and is active
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, email: true, role: true, vendorId: true, oemId: true, active: true, lastPasswordChange: true },
+      select: { id: true, email: true, role: true, vendorId: true, oemId: true, active: true, deletedAt: true, lastPasswordChange: true },
     });
-    if (!user || !user.active) {
+    if (!user || !user.active || user.deletedAt) {
       return res.status(401).json({ success: false, error: 'Account not found or deactivated' });
     }
 
     // If password changed after token was issued, invalidate token
     if (user.lastPasswordChange && decoded.iat) {
       const tokenIssuedAt = decoded.iat * 1000;
-      if (user.lastPasswordChange.getTime() > tokenIssuedAt) {
+      if (user.lastPasswordChange.getTime() > tokenIssuedAt + 1000) {
         return res.status(401).json({ success: false, error: 'Session invalidated. Please log in again.', code: 'TOKEN_INVALIDATED' });
       }
     }
@@ -133,7 +154,8 @@ exports.refreshToken = async (req, res) => {
     const accessToken = signAccess(tokenPayload);
     const newRefresh = signRefresh({ userId: user.id });
 
-    return res.json({ success: true, accessToken, refreshToken: newRefresh });
+    // `data` mirrors the tokens for the web app, which reads res.data.data.
+    return res.json({ success: true, accessToken, refreshToken: newRefresh, data: { accessToken, refreshToken: newRefresh } });
   } catch (err) {
     return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
   }
@@ -143,8 +165,10 @@ exports.me = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.userId },
-      select: { id: true, fullName: true, email: true, role: true, vendorId: true, oemId: true, totpEnabled: true, lastLoginAt: true },
-      include: { vendor: { select: { companyName: true, status: true } }, oem: { select: { name: true } } },
+      select: {
+        id: true, fullName: true, email: true, role: true, vendorId: true, oemId: true, totpEnabled: true, lastLoginAt: true, mustChangePassword: true,
+        vendor: { select: { companyName: true, status: true } }, oem: { select: { name: true } },
+      },
     });
     return res.json({ success: true, user });
   } catch (err) {
@@ -166,7 +190,7 @@ exports.forgotPassword = async (req, res) => {
 
     // Always return success to prevent user enumeration
     const successMsg = { success: true, message: 'If that email exists, a reset code has been sent.' };
-    if (!user || !user.active) return res.json(successMsg);
+    if (!user || !user.active || user.deletedAt) return res.json(successMsg);
 
     // Rate check: max 3 resets per hour
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
@@ -175,18 +199,20 @@ exports.forgotPassword = async (req, res) => {
     }
 
     // Generate 6-digit OTP + secure token
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = crypto.randomInt(100000, 1000000).toString();
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = hashToken(rawToken + otp);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
+    // Reset the request counter once the last request is over an hour old.
+    const freshWindow = !user.lastResetAt || user.lastResetAt <= oneHourAgo;
     await prisma.user.update({
       where: { id: user.id },
       data: {
         resetToken: rawToken,
         resetTokenHash: tokenHash,
         resetExpires: expiresAt,
-        resetAttempts: { increment: 1 },
+        resetAttempts: freshWindow ? 1 : { increment: 1 },
         lastResetAt: new Date(),
       },
     });
@@ -200,6 +226,9 @@ exports.forgotPassword = async (req, res) => {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
 };
+
+// Wrong-code counts per user (in memory; a restart only resets the count).
+const otpFailures = new Map();
 
 exports.verifyOtp = async (req, res) => {
   try {
@@ -215,15 +244,26 @@ exports.verifyOtp = async (req, res) => {
     }
 
     const expectedHash = hashToken(user.resetToken + otp);
-    if (expectedHash !== user.resetTokenHash) {
+    if (!safeEqual(expectedHash, user.resetTokenHash)) {
+      // A 6-digit code can be guessed with enough tries, so a few wrong guesses
+      // cancel the reset and a new code must be requested.
+      const failed = (otpFailures.get(user.id) || 0) + 1;
+      otpFailures.set(user.id, failed);
+      if (failed >= MAX_OTP_TRIES) {
+        otpFailures.delete(user.id);
+        await prisma.user.update({ where: { id: user.id }, data: { resetToken: null, resetTokenHash: null, resetExpires: null } });
+        return res.status(400).json({ success: false, error: 'Too many wrong codes. Please request a new reset code.' });
+      }
       return res.status(400).json({ success: false, error: 'Invalid OTP code' });
     }
+    otpFailures.delete(user.id);
 
-    // Issue a short-lived verified token for the password reset step
+    // Short-lived token for the password reset step. It carries a fingerprint of
+    // this reset so it works only once and only for this request.
     const verifiedToken = jwt.sign(
-      { userId: user.id, purpose: 'password_reset' },
+      { userId: user.id, purpose: 'password_reset', rh: user.resetTokenHash.slice(0, 16) },
       process.env.JWT_SECRET,
-      { expiresIn: '10m' }
+      { algorithm: 'HS256', expiresIn: '10m' }
     );
 
     return res.json({ success: true, verifiedToken, message: 'OTP verified. Proceed to set new password.' });
@@ -234,17 +274,25 @@ exports.verifyOtp = async (req, res) => {
 
 exports.resetPassword = async (req, res) => {
   try {
-    const { verifiedToken, password } = req.body;
+    // The web app sends `token`; older clients sent `verifiedToken`.
+    const verifiedToken = req.body.verifiedToken || req.body.token;
+    const { password } = req.body;
 
     let decoded;
     try {
-      decoded = jwt.verify(verifiedToken, process.env.JWT_SECRET);
+      decoded = jwt.verify(verifiedToken, process.env.JWT_SECRET, { algorithms: JWT_ALGS });
     } catch {
       return res.status(400).json({ success: false, error: 'Reset session expired. Start over.' });
     }
 
-    if (decoded.purpose !== 'password_reset') {
+    if (decoded.purpose !== 'password_reset' || !decoded.rh) {
       return res.status(400).json({ success: false, error: 'Invalid reset token' });
+    }
+
+    // Single use: the reset must still be open and be the same one the code was checked against.
+    const target = await prisma.user.findUnique({ where: { id: decoded.userId }, select: { resetTokenHash: true, resetExpires: true } });
+    if (!target?.resetTokenHash || !target.resetTokenHash.startsWith(decoded.rh) || !target.resetExpires || target.resetExpires < new Date()) {
+      return res.status(400).json({ success: false, error: 'This reset link has already been used or has expired. Start over.' });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
@@ -273,6 +321,10 @@ exports.resetPassword = async (req, res) => {
 
 exports.setup2FA = async (req, res) => {
   try {
+    const current = await prisma.user.findUnique({ where: { id: req.user.userId }, select: { totpEnabled: true } });
+    if (current?.totpEnabled) {
+      return res.status(400).json({ success: false, error: '2FA is already on. Turn it off first to set up a new device.' });
+    }
     const secret = totp.generateSecret();
     const otpAuthUrl = totp.keyuri(req.user.email, 'FleetAnchor Pro', secret);
 
@@ -288,7 +340,8 @@ exports.verify2FA = async (req, res) => {
   try {
     const { code } = req.body;
     const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
-    const valid = totp.check(code, user.totpSecret);
+    if (!user?.totpSecret || !code) return res.status(400).json({ success: false, error: 'Start 2FA setup first' });
+    const valid = totp.check(String(code), user.totpSecret);
     if (!valid) return res.status(400).json({ success: false, error: 'Invalid code' });
     await prisma.user.update({ where: { id: req.user.userId }, data: { totpEnabled: true } });
     await auditService.log({ userId: req.user.userId, action: '2FA_ENABLED', entityType: 'user', entityId: req.user.userId, ipAddress: req.ip, actorLabel: req.user.email });
@@ -300,6 +353,14 @@ exports.verify2FA = async (req, res) => {
 
 exports.disable2FA = async (req, res) => {
   try {
+    // A stolen session alone must not be enough to switch 2FA off.
+    const { code, password } = req.body;
+    const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+    const codeOk = user?.totpEnabled && code && totp.check(String(code), user.totpSecret);
+    const passwordOk = password && user && (await bcrypt.compare(String(password), user.passwordHash));
+    if (!codeOk || !passwordOk) {
+      return res.status(400).json({ success: false, error: 'Enter your password and a current 2FA code to turn 2FA off.' });
+    }
     await prisma.user.update({ where: { id: req.user.userId }, data: { totpEnabled: false, totpSecret: null } });
     await auditService.log({ userId: req.user.userId, action: '2FA_DISABLED', entityType: 'user', entityId: req.user.userId, ipAddress: req.ip, actorLabel: req.user.email });
     return res.json({ success: true, message: '2FA disabled' });
@@ -337,6 +398,10 @@ exports.register = async (req, res) => {
     const existing = await prisma.user.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ success: false, error: 'Email already registered' });
 
+    const { resolveVendorId } = require('../utils/tenant');
+    const targetVendorId = await resolveVendorId(caller, vendorId);
+    if (!targetVendorId) return res.status(403).json({ success: false, error: 'You cannot add users to that fleet' });
+
     const passwordHash = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: {
@@ -344,8 +409,9 @@ exports.register = async (req, res) => {
         email,
         passwordHash,
         role,
-        vendorId: caller.role === 'FLEET_MANAGER' ? caller.vendorId : vendorId,
+        vendorId: targetVendorId,
         oemId: caller.oemId,
+        mustChangePassword: true,
       },
     });
 
@@ -434,14 +500,17 @@ exports.changePassword = async (req, res) => {
 
     const valid = await bcrypt.compare(currentPassword, user.passwordHash);
     if (!valid) return res.status(400).json({ success: false, error: 'Current password is incorrect' });
+    if (currentPassword === newPassword) return res.status(400).json({ success: false, error: 'Choose a password you have not used here before' });
 
     const passwordHash = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash, mustChangePassword: false, lastPasswordChange: new Date() },
+      data: { passwordHash, mustChangePassword: false, lastPasswordChange: new Date(Date.now() - 2000) },
     });
     await auditService.log({ userId: user.id, action: 'PASSWORD_CHANGED', entityType: 'user', entityId: user.id, ipAddress: req.ip, actorLabel: user.email });
-    res.json({ success: true, message: 'Password changed successfully. All previous sessions have been invalidated.' });
+    // Other sessions are signed out; this device gets fresh tokens so it stays signed in.
+    const tokens = issueTokens(user);
+    res.json({ success: true, message: 'Password changed successfully. All previous sessions have been invalidated.', ...tokens });
   } catch (err) {
     logger.error('changePassword error:', err);
     res.status(500).json({ success: false, error: 'Server error' });
@@ -481,7 +550,7 @@ exports.requestPasswordReset = async (req, res) => {
 
     // Always return success to prevent user enumeration
     const success = { success: true, message: 'Reset request submitted. Your manager will review and approve it.' };
-    if (!user || !user.active) return res.json(success);
+    if (!user || !user.active || user.deletedAt) return res.json(success);
 
     // Find approver (next higher authority)
     const approvers = user.vendor?.users || [];
@@ -508,7 +577,7 @@ exports.requestPasswordReset = async (req, res) => {
       data: {
         userId: user.id,
         vendorId: user.vendorId || null,
-        fullName: user.fullName || fullName || email,
+        fullName: user.fullName || email,
         email,
         newPasswordHash,
         token,
@@ -523,7 +592,7 @@ exports.requestPasswordReset = async (req, res) => {
     for (const approver of approvers) {
       await sendEmail({
         to: approver.email,
-        subject: `🔑 Password Reset Request — ${user.fullName || email} needs approval`,
+        subject: `🔑 Password Reset Request — ${escHtml(user.fullName || email)} needs approval`,
         html: `
         <!DOCTYPE html><html><body style="margin:0;padding:0;background:#F0F4F8;font-family:'Segoe UI',Arial,sans-serif">
         <div style="max-width:600px;margin:0 auto;padding:24px 16px">
@@ -532,14 +601,14 @@ exports.requestPasswordReset = async (req, res) => {
             <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:2.5px">PASSWORD RESET APPROVAL</div>
           </div>
           <div style="background:#fff;border-radius:0 0 12px 12px;padding:28px;box-shadow:0 4px 16px rgba(0,0,0,.10)">
-            <p style="font-size:14px;color:#333;margin:0 0 6px">Dear ${approver.fullName},</p>
+            <p style="font-size:14px;color:#333;margin:0 0 6px">Dear ${escHtml(approver.fullName)},</p>
             <p style="font-size:13px;color:#666;margin:0 0 20px;line-height:1.6">
-              <strong>${user.fullName || email}</strong> has requested a password reset and needs your approval.
+              <strong>${escHtml(user.fullName || email)}</strong> has requested a password reset and needs your approval.
               If you recognise this person and the request is legitimate, click the button below.
             </p>
             <div style="background:#F0F4F8;border-radius:10px;padding:16px;margin-bottom:20px">
-              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Requested by:</strong> ${user.fullName || email}</p>
-              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Email:</strong> ${email}</p>
+              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Requested by:</strong> ${escHtml(user.fullName || email)}</p>
+              <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Email:</strong> ${escHtml(email)}</p>
               <p style="font-size:12px;color:#444;margin:0 0 4px"><strong>Role:</strong> ${user.role}</p>
               <p style="font-size:12px;color:#444;margin:0"><strong>Requested at:</strong> ${new Date().toLocaleString('en-NG')}</p>
             </div>
@@ -573,7 +642,7 @@ exports.requestPasswordReset = async (req, res) => {
 exports.reviewPasswordReset = async (req, res) => {
   try {
     const { token } = req.params;
-    const { action } = req.query; // 'approve' or 'reject'
+    const { action } = req.body; // 'approve' or 'reject'
 
     const resetReq = await prisma.passwordResetRequest.findUnique({ where: { token }, include: { user: true } });
 
@@ -632,19 +701,11 @@ exports.issueCredentials = async (req, res) => {
     const { userId, newPassword } = req.body;
     const caller = req.user;
 
-    const target = await prisma.user.findUnique({ where: { id: userId } });
+    // Only users inside the caller's own fleet / OEM, and only of a lower rank.
+    const target = await prisma.user.findFirst({ where: { id: String(userId), deletedAt: null, ...userWhere(caller) } });
     if (!target) return res.status(404).json({ success: false, error: 'User not found' });
-
-    // Permission: only higher roles can reset
-    const hierarchy = ['DRIVER', 'FIELD_AGENT', 'MAINTENANCE_SUPERVISOR', 'FLEET_MANAGER', 'OEM_ADMIN', 'WORKSHOP_STAFF', 'SUPER_ADMIN'];
-    const callerLevel = hierarchy.indexOf(caller.role);
-    const targetLevel = hierarchy.indexOf(target.role);
-    if (callerLevel <= targetLevel) return res.status(403).json({ success: false, error: 'Insufficient authority to reset this user\'s password' });
-
-    // Tenant check — fleet manager can only reset their own vendor's users
-    if (caller.role === 'FLEET_MANAGER' && target.vendorId !== caller.vendorId) {
-      return res.status(403).json({ success: false, error: 'Cannot reset password for user outside your fleet' });
-    }
+    if (!outranks(caller.role, target.role)) return res.status(403).json({ success: false, error: 'Insufficient authority to reset this user\'s password' });
+    if (newPassword && String(newPassword).length < 12) return res.status(400).json({ success: false, error: 'Password must be at least 12 characters' });
 
     const pw = newPassword || generateTempPassword();
     const passwordHash = await bcrypt.hash(pw, 12);
@@ -655,7 +716,7 @@ exports.issueCredentials = async (req, res) => {
     });
 
     // Email new credentials
-    const { sendEmail } = require('../services/emailService');
+    const { sendEmail } = emailService;
     await sendEmail({
       to: target.email,
       subject: '🔑 Your FleetAnchor Pro login credentials have been reset',
@@ -663,8 +724,8 @@ exports.issueCredentials = async (req, res) => {
         <h2 style="color:#F5A623;text-align:center">⚓ FleetAnchor Pro</h2>
         <p style="color:#94a3b8">Your login credentials have been reset by your manager.</p>
         <div style="background:#0F2040;border-radius:8px;padding:16px;margin:16px 0">
-          <p style="color:#94a3b8;font-size:13px;margin:0 0 8px">Email: <strong style="color:#fff">${target.email}</strong></p>
-          <p style="color:#94a3b8;font-size:13px;margin:0">Temp password: <strong style="color:#F5A623;font-family:monospace">${pw}</strong></p>
+          <p style="color:#94a3b8;font-size:13px;margin:0 0 8px">Email: <strong style="color:#fff">${escHtml(target.email)}</strong></p>
+          <p style="color:#94a3b8;font-size:13px;margin:0">Temp password: <strong style="color:#F5A623;font-family:monospace">${escHtml(pw)}</strong></p>
         </div>
         <p style="color:#94a3b8;font-size:12px">You will be required to change this password on first login.</p>
         <div style="text-align:center;margin-top:20px">
@@ -688,6 +749,6 @@ exports.issueCredentials = async (req, res) => {
 function generateTempPassword() {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!';
   let pw = '';
-  for (let i = 0; i < 10; i++) pw += chars[Math.floor(Math.random() * chars.length)];
-  return pw + Math.floor(Math.random() * 9000 + 1000);
+  for (let i = 0; i < 12; i++) pw += chars[crypto.randomInt(chars.length)];
+  return pw + crypto.randomInt(1000, 10000);
 }

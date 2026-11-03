@@ -1,15 +1,22 @@
+const crypto = require('crypto');
 const prisma = require('../config/prisma');
 
-exports.generateJobNumber = async () => {
-  const count = await prisma.jobRequest.count();
-  const num = String(count + 1).padStart(4, '0');
+// Count-based numbers repeat once a record is deleted, and two requests at the
+// same moment got the same number. Try the next numbers until one is free.
+async function nextNumber(prefix, countFn, existsFn) {
   const year = new Date().getFullYear().toString().slice(2);
-  return `JB-${year}${num}`;
-};
+  let n = (await countFn()) + 1;
+  for (let i = 0; i < 20; i++, n++) {
+    const candidate = `${prefix}-${year}${String(n).padStart(4, '0')}`;
+    if (!(await existsFn(candidate))) return candidate;
+  }
+  return `${prefix}-${year}${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+}
 
-exports.generateInvoiceNumber = async () => {
-  const count = await prisma.invoice.count();
-  const num = String(count + 1).padStart(4, '0');
-  const year = new Date().getFullYear().toString().slice(2);
-  return `INV-${year}${num}`;
-};
+exports.generateJobNumber = () => nextNumber('JB',
+  () => prisma.jobRequest.count(),
+  (jobNumber) => prisma.jobRequest.findFirst({ where: { jobNumber }, select: { id: true } }));
+
+exports.generateInvoiceNumber = () => nextNumber('INV',
+  () => prisma.invoice.count(),
+  (invoiceNumber) => prisma.invoice.findFirst({ where: { invoiceNumber }, select: { id: true } }));
