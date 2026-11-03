@@ -22,7 +22,7 @@ async function generateMonthlyReport(vendor, month, year) {
       include: {
         vehicle: { select: { plateNumber: true, make: true, model: true, year: true } },
         invoices: true,
-        estimates: { orderBy: { createdAt: 'desc' }, take: 1 },
+        estimates: { orderBy: { revision: 'desc' }, take: 1 },
       },
       orderBy: { submittedAt: 'asc' },
     }),
@@ -369,11 +369,11 @@ async function sendMonthlyReports() {
     where: {
       status: 'ACTIVE',
       deletedAt: null,
-      subscription: { plan: { in: ['GROWTH', 'ENTERPRISE'] } },
+      subscriptions: { some: { status: 'ACTIVE', plan: { in: ['GROWTH', 'ENTERPRISE'] } } },
     },
     include: {
       users: { where: { role: 'FLEET_MANAGER', active: true }, take: 1 },
-      subscription: true,
+      subscriptions: { where: { status: 'ACTIVE' }, orderBy: { expiryDate: 'desc' }, take: 1 },
     },
   });
 

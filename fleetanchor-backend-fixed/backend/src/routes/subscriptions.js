@@ -7,7 +7,6 @@ const sc = require("../controllers/subscriptionController");
 router.use(authenticate, scopeToTenant);
 
 router.get("/", sc.list);
-router.get("/:vendorId", param("vendorId").isUUID(), validate, sc.getForVendor);
 
 router.post("/initiate",
   requireRole(["SUPER_ADMIN","OEM_ADMIN","FLEET_MANAGER"]),
@@ -22,6 +21,9 @@ router.get("/verify",
   validate,
   sc.verify
 );
+
+// Must come before "/:vendorId", which used to swallow "/verify" and reject it.
+router.get("/:vendorId", param("vendorId").isUUID(), validate, sc.getForVendor);
 
 router.post("/extend",
   requireRole(["SUPER_ADMIN"]),

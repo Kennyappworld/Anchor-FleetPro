@@ -2,13 +2,18 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
-
-const PLAN_DAYS = 30;
+const logger = require('../config/logger');
+const { sendEmail } = require('../services/emailService');
+const { activateFromPaystack } = require('../controllers/subscriptionController');
 
 function verifyPaystackSignature(req) {
   const secret = process.env.PAYSTACK_SECRET_KEY; // Paystack uses secret key for webhook too
-  const hash = crypto.createHmac('sha512', secret).update(req.body).digest('hex');
-  return hash === req.headers['x-paystack-signature'];
+  const given = req.headers['x-paystack-signature'];
+  if (!secret || !given || !Buffer.isBuffer(req.body)) return false;
+  const expected = crypto.createHmac('sha512', secret).update(req.body).digest('hex');
+  const a = Buffer.from(expected);
+  const b = Buffer.from(String(given));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 router.post('/paystack', async (req, res) => {
@@ -30,20 +35,15 @@ router.post('/paystack', async (req, res) => {
       
       case 'charge.success': {
         const data = event.data;
-        const email = data.customer?.email;
-        const amount = data.amount / 100; // kobo → naira
         const ref = data.reference;
 
-        // Determine plan from amount
-        let plan = 'GROWTH';
-        if (amount >= 250000) plan = 'ENTERPRISE';
-
-        // Check if this is a subscription payment (has metadata) or invoice payment
-        const meta = data.metadata || {};
-
-        
+        // Invoice payment?
         const invoice = await prisma.invoice.findFirst({ where: { paystackRef: ref } });
         if (invoice) {
+          if (Number(data.amount) < Math.round(Number(invoice.totalAmount) * 100)) {
+            logger.warn(`[WEBHOOK] Invoice ${invoice.invoiceNumber}: amount paid is less than the invoice — not marked paid`);
+            break;
+          }
           await prisma.invoice.update({
             where: { id: invoice.id },
             data: { paymentConfirmed: true, paidAt: new Date(), paystackTrxRef: String(data.id || '') },
@@ -52,45 +52,12 @@ router.post('/paystack', async (req, res) => {
           break;
         }
 
-        
-        const vendor = await prisma.vendor.findFirst({
-          where: {
-            OR: [
-              meta.vendorId ? { id: meta.vendorId } : undefined,
-              { users: { some: { email } } },
-            ].filter(Boolean),
-          },
-        });
-
-        if (!vendor) {
-          logger.warn(`[WEBHOOK] charge.success — could not match vendor for email ${email}`);
-          break;
-        }
-
-        // Get current active subscription for smart renewal calc
-        const currentSub = await prisma.subscription.findFirst({
-          where: { vendorId: vendor.id, status: { in: ['ACTIVE', 'TRIAL'] } },
-          orderBy: { expiryDate: 'desc' },
-        });
-
-        // Smart start date: if current sub still has days left, new period starts after it
-        const now = new Date();
-        const currentExpiry = currentSub?.expiryDate ? new Date(currentSub.expiryDate) : null;
-        const startDate = currentExpiry && currentExpiry > now ? currentExpiry : now;
-        const expiryDate = new Date(startDate);
-        expiryDate.setDate(expiryDate.getDate() + PLAN_DAYS);
-
-        await activateSubscription({
-          vendorId: vendor.id,
-          plan: meta.plan || plan,
-          startDate,
-          expiryDate,
-          paystackAuthCode: data.authorization?.authorization_code,
-          paystackEmail: email,
-          reference: ref,
-        });
-
-        logger.info(`[WEBHOOK] Subscription ${currentSub && currentExpiry > now ? 'renewal queued' : 'activated'} for ${vendor.companyName} — ${plan}`);
+        // Subscription payment — only with our own metadata and the right amount.
+        // (It used to activate a plan for any payment from a fleet's email, of any size.)
+        const result = await activateFromPaystack(data, 'webhook');
+        if (result.error) logger.warn(`[WEBHOOK] charge.success ${ref} not applied: ${result.error}`);
+        else if (result.duplicate) logger.info(`[WEBHOOK] charge.success ${ref} already processed`);
+        else logger.info(`[WEBHOOK] Subscription applied for payment ${ref}`);
         break;
       }
 

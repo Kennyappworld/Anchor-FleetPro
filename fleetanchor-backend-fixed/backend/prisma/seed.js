@@ -1,7 +1,19 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
 
+const crypto = require('crypto');
 const prisma = new PrismaClient();
+
+// No passwords live in this repository. The super admin comes from environment
+// variables; sample accounts get a random one-time password printed once and
+// must change it at first sign-in.
+const randomPassword = () => 'Fa!' + crypto.randomBytes(12).toString('base64url');
+const SUPER_ADMIN_EMAIL = process.env.SUPER_ADMIN_EMAIL;
+const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD;
+if (!SUPER_ADMIN_EMAIL || !SUPER_ADMIN_PASSWORD || SUPER_ADMIN_PASSWORD.length < 12) {
+  console.error('Set SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD (12+ characters) before seeding.');
+  process.exit(1);
+}
 
 async function main() {
   console.log('🌱 Seeding FleetAnchor Pro database...');
@@ -23,13 +35,13 @@ async function main() {
   console.log('✅ OEM:', oem.name);
 
   // 3. Super Admin
-  const superAdminHash = await bcrypt.hash(process.env.SUPER_ADMIN_PASSWORD || 'Change@Me123!', 12);
+  const superAdminHash = await bcrypt.hash(SUPER_ADMIN_PASSWORD, 12);
   const superAdmin = await prisma.user.upsert({
-    where: { email: process.env.SUPER_ADMIN_EMAIL || 'admin@afrifleet.com' },
+    where: { email: SUPER_ADMIN_EMAIL },
     update: {},
     create: {
       fullName: 'Super Administrator',
-      email: process.env.SUPER_ADMIN_EMAIL || 'admin@afrifleet.com',
+      email: SUPER_ADMIN_EMAIL,
       passwordHash: superAdminHash,
       role: 'SUPER_ADMIN',
       active: true,
@@ -53,7 +65,8 @@ async function main() {
   console.log('✅ Vendor:', vendor.companyName);
 
   // 5. Fleet Manager for vendor
-  const fmHash = await bcrypt.hash('FleetMgr@2026!', 12);
+  const fmPassword = randomPassword();
+  const fmHash = await bcrypt.hash(fmPassword, 12);
   const fleetManager = await prisma.user.upsert({
     where: { email: 'a.okafor@coca-cola.ng' },
     update: {},
@@ -64,12 +77,14 @@ async function main() {
       role: 'FLEET_MANAGER',
       vendorId: vendor.id,
       active: true,
+      mustChangePassword: true,
     },
   });
   console.log('✅ Fleet Manager:', fleetManager.fullName);
 
   // 6. Workshop Staff
-  const staffHash = await bcrypt.hash('WorkShop@2026!', 12);
+  const staffPassword = randomPassword();
+  const staffHash = await bcrypt.hash(staffPassword, 12);
   await prisma.user.upsert({
     where: { email: 'e.nwosu@afrifleet.com' },
     update: {},
@@ -78,7 +93,9 @@ async function main() {
       email: 'e.nwosu@afrifleet.com',
       passwordHash: staffHash,
       role: 'WORKSHOP_STAFF',
+      oemId: oem.id,
       active: true,
+      mustChangePassword: true,
     },
   });
   console.log('✅ Workshop Staff seeded');
@@ -116,8 +133,9 @@ async function main() {
 
   console.log('\n🚀 Seed complete!');
   console.log('─────────────────────────────────────────────');
-  console.log(`Super Admin: ${superAdmin.email} / ${process.env.SUPER_ADMIN_PASSWORD || 'Change@Me123!'}`);
-  console.log(`Fleet Manager: ${fleetManager.email} / FleetMgr@2026!`);
+  console.log(`Super Admin: ${superAdmin.email} (password from SUPER_ADMIN_PASSWORD)`);
+  console.log(`Fleet Manager: ${fleetManager.email} / ${fmPassword}   (one-time, must be changed)`);
+  console.log(`Workshop Staff: e.nwosu@afrifleet.com / ${staffPassword}   (one-time, must be changed)`);
   console.log('─────────────────────────────────────────────');
   console.log('⚠️  Change all passwords in production!');
 }

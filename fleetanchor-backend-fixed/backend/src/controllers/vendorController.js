@@ -1,10 +1,15 @@
+const crypto = require('crypto');
 const prisma = require('../config/prisma');
+const { sendEmail } = require('../services/emailService');
+const { logAction } = require('../services/auditService');
+const { escHtml } = require('../utils/sanitize');
+const { vendorWhere, isSuper } = require('../utils/tenant');
 
-function tenantFilter(req) {
-  const { role, tenantId } = req.user;
-  if (role === 'SUPER_ADMIN') return {};
-  return { oem: { tenantId } };
-}
+const tenantFilter = (req) => vendorWhere(req.user);
+
+// The vendor named in the URL, if the caller may manage it.
+const findOwnVendor = (req, extra = {}) =>
+  prisma.vendor.findFirst({ where: { id: req.params.id, ...tenantFilter(req), ...extra } });
 
 exports.list = async (req, res, next) => {
   try {
@@ -52,7 +57,7 @@ exports.stats = async (req, res, next) => {
       prisma.vehicle.count({ where: { vendorId: req.params.id } }),
       prisma.jobRequest.count({ where: { vehicle: { vendorId: req.params.id } } }),
       prisma.invoice.aggregate({
-        where: { jobRequest: { vehicle: { vendorId: req.params.id } }, paymentConfirmed: true },
+        where: { job: { vehicle: { vendorId: req.params.id } }, paymentConfirmed: true },
         _sum: { totalAmount: true },
       }),
     ]);
@@ -73,8 +78,12 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ success: false, error: 'Fleet email address is required' });
     }
 
-    // Resolve oemId — Super Admin may not have one, so pick the first OEM
-    let oemId = req.body.oemId || req.user.oemId;
+    // Only a Super Admin may place a vendor under a different OEM.
+    let oemId = isSuper(req.user) ? (req.body.oemId || req.user.oemId) : req.user.oemId;
+    if (!isSuper(req.user) && !oemId) return res.status(403).json({ success: false, error: 'Your account is not linked to an OEM' });
+
+    const taken = await prisma.user.findUnique({ where: { email: String(email).trim().toLowerCase() } });
+    if (taken) return res.status(409).json({ success: false, error: 'A user with that email already exists' });
     if (!oemId) {
       const firstOem = await prisma.oemCompany.findFirst({ orderBy: { createdAt: 'asc' } });
       if (!firstOem) return res.status(400).json({ success: false, error: 'No OEM company found. Create an OEM first.' });
@@ -87,7 +96,7 @@ exports.create = async (req, res, next) => {
     const trialEndsAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     // Generate a readable temporary password
-    const tempPassword = 'Fleet@' + crypto.randomBytes(4).toString('hex').toUpperCase();
+    const tempPassword = 'Fleet@' + crypto.randomBytes(6).toString('hex').toUpperCase();
 
     const vendor = await prisma.vendor.create({
       data: {
@@ -95,7 +104,7 @@ exports.create = async (req, res, next) => {
         oemId, address: address || null,
         status: 'ACTIVE',
         inviteToken, inviteExpiry,
-        trialEndsAt, trialPlan: plan || 'GROWTH',
+        trialEndsAt, trialPlan: ['GROWTH', 'ENTERPRISE'].includes(plan) ? plan : 'GROWTH',
         inviteAccepted: true, // account created directly — no setup page needed
       },
       include: { oem: { select: { name: true } } },
@@ -107,7 +116,7 @@ exports.create = async (req, res, next) => {
     await prisma.user.create({
       data: {
         fullName: contactPerson || companyName,
-        email,
+        email: String(email).trim().toLowerCase(),
         passwordHash,
         role: 'FLEET_MANAGER',
         vendorId: vendor.id,
@@ -131,17 +140,17 @@ exports.create = async (req, res, next) => {
             <div style="font-size:11px;color:#5A7A99;margin-top:4px;letter-spacing:1px">MAINTENANCE MANAGEMENT PLATFORM</div>
           </div>
           <div style="background:#fff;padding:28px;border-radius:0 0 12px 12px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
-            <h2 style="color:#0A1628;margin-top:0">Welcome, ${contactPerson || companyName}! 🎉</h2>
-            <p>Your FleetAnchor Pro account for <strong>${companyName}</strong> has been created by <strong>${vendor.oem?.name || 'your OEM'}</strong>.</p>
+            <h2 style="color:#0A1628;margin-top:0">Welcome, ${escHtml(contactPerson || companyName)}! 🎉</h2>
+            <p>Your FleetAnchor Pro account for <strong>${escHtml(companyName)}</strong> has been created by <strong>${escHtml(vendor.oem?.name || 'your OEM')}</strong>.</p>
             <p>You are on a <strong>30-day free trial</strong> of the ${plan || 'GROWTH'} plan — no payment needed yet.</p>
 
             <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px;padding:20px;margin:20px 0">
               <p style="margin:0 0 12px;font-weight:700;color:#0A1628;font-size:13px">🔐 Your Login Details</p>
               <table style="width:100%;font-size:13px">
                 <tr><td style="color:#666;padding:6px 0;width:40%">Login URL</td><td><a href="${loginUrl}" style="color:#1155CC;font-weight:600">${loginUrl}</a></td></tr>
-                <tr><td style="color:#666;padding:6px 0">Email / Username</td><td style="font-weight:600">${email}</td></tr>
+                <tr><td style="color:#666;padding:6px 0">Email / Username</td><td style="font-weight:600">${escHtml(email)}</td></tr>
                 <tr><td style="color:#666;padding:6px 0">Temporary Password</td><td><strong style="background:#FFF3DC;padding:3px 8px;border-radius:4px;letter-spacing:1px">${tempPassword}</strong></td></tr>
-                <tr><td style="color:#666;padding:6px 0">Plan</td><td><strong>${plan || 'GROWTH'} — 30-day free trial</strong></td></tr>
+                <tr><td style="color:#666;padding:6px 0">Plan</td><td><strong>${escHtml(plan || 'GROWTH')} — 30-day free trial</strong></td></tr>
               </table>
             </div>
 
@@ -163,7 +172,7 @@ exports.create = async (req, res, next) => {
               </a>
             </div>
 
-            <p style="font-size:11px;color:#999;text-align:center">If you did not expect this email, contact ${vendor.oem?.name || 'your OEM administrator'}.</p>
+            <p style="font-size:11px;color:#999;text-align:center">If you did not expect this email, contact ${escHtml(vendor.oem?.name || 'your OEM administrator')}.</p>
           </div>
         </div>
       `,
@@ -185,7 +194,9 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const allowed = ['companyName','email','contactPhone','address'];
+    if (!(await findOwnVendor(req, { deletedAt: null }))) return res.status(404).json({ success: false, error: 'Vendor not found' });
+    const allowed = ['companyName','contactEmail','contactPhone','address'];
+    if (req.body.email && !req.body.contactEmail) req.body.contactEmail = req.body.email; // 'email' is not a vendor column
     const data = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
     const updated = await prisma.vendor.update({ where: { id: req.params.id }, data });
     await logAction(req, 'VENDOR_UPDATED', 'Vendor', req.params.id);
@@ -196,9 +207,10 @@ exports.update = async (req, res, next) => {
 exports.suspend = async (req, res, next) => {
   try {
     const { reason } = req.body;
+    if (!(await findOwnVendor(req))) return res.status(404).json({ success: false, error: 'Vendor not found' });
     const vendor = await prisma.vendor.update({
       where: { id: req.params.id },
-      data: { status: 'SUSPENDED', suspendedAt: new Date(), suspensionReason: reason },
+      data: { status: 'SUSPENDED', suspendedAt: new Date(), suspendedBy: req.user.userId, suspendReason: reason },
       include: { users: { select: { email: true, fullName: true }, take: 1 } },
     });
     // Notify primary contact
@@ -206,7 +218,7 @@ exports.suspend = async (req, res, next) => {
       await sendEmail({
         to: vendor.users[0].email,
         subject: 'FleetAnchor Pro — Account Suspended',
-        html: `<p>Hi ${vendor.users[0].fullName},</p><p>Your account for <strong>${vendor.companyName}</strong> has been suspended.</p><p><strong>Reason:</strong> ${reason || 'Policy violation or non-payment'}</p><p>Please contact support@fleetanchor.com to resolve this.</p>`,
+        html: `<p>Hi ${escHtml(vendor.users[0].fullName)},</p><p>Your account for <strong>${escHtml(vendor.companyName)}</strong> has been suspended.</p><p><strong>Reason:</strong> ${escHtml(reason || 'Policy violation or non-payment')}</p><p>Please contact support@fleetanchor.com to resolve this.</p>`,
       });
     }
     await logAction(req, 'VENDOR_SUSPENDED', 'Vendor', req.params.id, { reason });
@@ -216,9 +228,10 @@ exports.suspend = async (req, res, next) => {
 
 exports.reinstate = async (req, res, next) => {
   try {
+    if (!(await findOwnVendor(req, { deletedAt: null }))) return res.status(404).json({ success: false, error: 'Vendor not found' });
     await prisma.vendor.update({
       where: { id: req.params.id },
-      data: { status: 'ACTIVE', suspendedAt: null, suspensionReason: null },
+      data: { status: 'ACTIVE', suspendedAt: null, suspendedBy: null, suspendReason: null },
     });
     await logAction(req, 'VENDOR_REINSTATED', 'Vendor', req.params.id);
     res.json({ success: true, message: 'Vendor reinstated' });
@@ -227,8 +240,8 @@ exports.reinstate = async (req, res, next) => {
 
 exports.remove = async (req, res, next) => {
   try {
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: req.params.id },
+    const vendor = await prisma.vendor.findFirst({
+      where: { id: req.params.id, ...tenantFilter(req) },
       include: { _count: { select: { users: true, vehicles: true } } },
     });
     if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
@@ -242,7 +255,7 @@ exports.remove = async (req, res, next) => {
         where: { id: vendor.id },
         data: {
           deletedAt: new Date(),
-          deletedBy: req.user.id,
+          deletedBy: req.user.userId,
           purgeAt,
           status: 'SUSPENDED',
         },
@@ -294,7 +307,7 @@ exports.restore = async (req, res, next) => {
       }),
     ]);
 
-    await logAction(req, 'VENDOR_RESTORED', 'Vendor', vendor.id, { companyName: vendor.companyName, restoredBy: req.user.id });
+    await logAction(req, 'VENDOR_RESTORED', 'Vendor', vendor.id, { companyName: vendor.companyName, restoredBy: req.user.userId });
 
     res.json({
       success: true,

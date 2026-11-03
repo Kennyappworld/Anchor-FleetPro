@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const { validate } = require('../middleware/validate');
 const { authenticate, requireRole } = require('../middleware/auth');
 const prisma = require('../config/prisma');
+const { logAction } = require('../services/auditService');
 
 async function getSettings() {
   let s = await prisma.platformSettings.findUnique({ where: { id: 'singleton' } });
@@ -25,7 +26,8 @@ async function getSettings() {
 router.get('/settings', async (req, res, next) => {
   try {
     const s = await getSettings();
-    res.json({ success: true, data: s });
+    const { updatedBy, ...publicSettings } = s; // who changed prices is not public
+    res.json({ success: true, data: publicSettings });
   } catch (err) { next(err); }
 });
 
@@ -51,7 +53,7 @@ router.patch('/settings',
       for (const key of allowed) {
         if (req.body[key] !== undefined) data[key] = req.body[key];
       }
-      data.updatedBy = req.user.id;
+      data.updatedBy = req.user.userId;
 
       const s = await prisma.platformSettings.upsert({
         where: { id: 'singleton' },

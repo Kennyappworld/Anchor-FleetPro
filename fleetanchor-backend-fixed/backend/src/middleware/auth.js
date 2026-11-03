@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
 const prisma = require('../config/prisma');
+const { isSuper, isOem } = require('../utils/tenant');
+
+const JWT_ALGS = ['HS256'];
 
 exports.authenticate = async (req, res, next) => {
   try {
@@ -11,7 +14,7 @@ exports.authenticate = async (req, res, next) => {
     const token = authHeader.substring(7);
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: JWT_ALGS });
     } catch (err) {
       if (err.name === 'TokenExpiredError') {
         return res.status(401).json({ success: false, error: 'Token expired', code: 'TOKEN_EXPIRED' });
@@ -19,17 +22,27 @@ exports.authenticate = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Invalid token' });
     }
 
-    // Verify user still active
+    // Special-purpose tokens (e.g. the password-reset token) are not sign-in tokens.
+    if (decoded.purpose || !decoded.userId) {
+      return res.status(401).json({ success: false, error: 'Invalid token' });
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      select: { id: true, email: true, role: true, vendorId: true, oemId: true, active: true },
+      select: { id: true, email: true, role: true, vendorId: true, oemId: true, active: true, deletedAt: true, lastPasswordChange: true },
     });
 
-    if (!user || !user.active) {
+    if (!user || !user.active || user.deletedAt) {
       return res.status(401).json({ success: false, error: 'Account not found or deactivated' });
     }
 
-    req.user = { userId: user.id, email: user.email, role: user.role, vendorId: user.vendorId, oemId: user.oemId };
+    // A password change or reset signs the user out everywhere.
+    if (user.lastPasswordChange && decoded.iat && user.lastPasswordChange.getTime() > decoded.iat * 1000 + 1000) {
+      return res.status(401).json({ success: false, error: 'Session invalidated. Please log in again.', code: 'TOKEN_INVALIDATED' });
+    }
+
+    // `id` is kept as an alias because several handlers read req.user.id.
+    req.user = { userId: user.id, id: user.id, email: user.email, role: user.role, vendorId: user.vendorId, oemId: user.oemId };
     next();
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Authentication error' });
@@ -41,7 +54,7 @@ exports.requireRole = (...roles) => (req, res, next) => {
   // Flatten in case caller passes an array: requireRole(['A','B']) or requireRole('A','B')
   const allowed = roles.flat();
   if (!allowed.includes(req.user.role)) {
-    return res.status(403).json({ success: false, error: `Access denied. Required role: ${allowed.join(', ')}` });
+    return res.status(403).json({ success: false, error: 'Access denied' });
   }
   next();
 };
@@ -65,7 +78,7 @@ exports.requireActiveSubscription = async (req, res, next) => {
 exports.requireExportPermission = async (req, res, next) => {
   try {
     if (['SUPER_ADMIN', 'OEM_ADMIN', 'WORKSHOP_STAFF'].includes(req.user.role)) return next();
-    if (!req.user.vendorId) return next();
+    if (!req.user.vendorId) return res.status(403).json({ success: false, error: 'Access denied' });
     const sub = await prisma.subscription.findFirst({
       where: { vendorId: req.user.vendorId, status: { in: ['ACTIVE', 'EXPIRING'] } },
     });
@@ -78,14 +91,16 @@ exports.requireExportPermission = async (req, res, next) => {
   }
 };
 
-// Ensures vendors can only see their own data, OEM sees their vendors' data
+// Ensures vendors can only see their own data, OEM sees their vendors' data.
+// Users without the id their role needs get a scope that matches nothing.
+const NO_MATCH = '00000000-0000-0000-0000-000000000000';
 exports.scopeToTenant = (req, res, next) => {
-  if (req.user.role === 'SUPER_ADMIN') {
-    req.tenantScope = {}; // Super admin sees everything
-  } else if (['OEM_ADMIN', 'WORKSHOP_STAFF'].includes(req.user.role)) {
-    req.tenantScope = { oemId: req.user.oemId };
+  if (isSuper(req.user)) {
+    req.tenantScope = {};
+  } else if (isOem(req.user)) {
+    req.tenantScope = { oemId: req.user.oemId || NO_MATCH };
   } else {
-    req.tenantScope = { vendorId: req.user.vendorId };
+    req.tenantScope = { vendorId: req.user.vendorId || NO_MATCH };
   }
   next();
 };

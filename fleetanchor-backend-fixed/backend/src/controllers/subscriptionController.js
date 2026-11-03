@@ -1,6 +1,11 @@
 const logger = require('../config/logger');
 const prisma = require('../config/prisma');
 const axios = require('axios');
+const { sendEmail } = require('../services/emailService');
+const auditService = require('../services/auditService');
+const { logAction } = auditService;
+const { escHtml } = require('../utils/sanitize');
+const { vendorWhere, vendorOwnedWhere } = require('../utils/tenant');
 
 const PLAN_AMOUNTS = { GROWTH: 85000, ENTERPRISE: 250000 }; // in Naira
 const PLAN_DAYS = 30; // every plan is 30-day billing cycle
@@ -20,9 +25,7 @@ function calcNewDates(currentSub) {
 
 exports.list = async (req, res, next) => {
   try {
-    const { role, tenantId } = req.user;
-    const where = role === 'SUPER_ADMIN' ? {}
-      : { vendor: { oem: { tenantId } } };
+    const where = vendorOwnedWhere(req.user);
     const subs = await prisma.subscription.findMany({
       where,
       include: { vendor: { select: { companyName: true } } },
@@ -36,7 +39,7 @@ exports.getForVendor = async (req, res, next) => {
   try {
     // Return the most relevant subscription: active first, then most recent
     const sub = await prisma.subscription.findFirst({
-      where: { vendorId: req.params.vendorId },
+      where: { vendorId: req.params.vendorId, ...vendorOwnedWhere(req.user) },
       orderBy: [{ status: 'asc' }, { expiryDate: 'desc' }],
     });
     const now = new Date();
@@ -48,8 +51,8 @@ exports.getForVendor = async (req, res, next) => {
 exports.initiate = async (req, res, next) => {
   try {
     const { vendorId, plan } = req.body;
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: vendorId },
+    const vendor = await prisma.vendor.findFirst({
+      where: { id: vendorId, deletedAt: null, ...vendorWhere(req.user) },
       include: { users: { where: { role: 'FLEET_MANAGER' }, take: 1 } },
     });
     if (!vendor) return res.status(404).json({ success: false, error: 'Vendor not found' });
@@ -108,28 +111,19 @@ exports.verify = async (req, res, next) => {
     const { reference } = req.query;
     if (!reference) return res.status(400).json({ success: false, error: 'Reference required' });
 
-    const paystackRes = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
+    const paystackRes = await axios.get(`https://api.paystack.co/transaction/verify/${encodeURIComponent(String(reference))}`, {
       headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
     });
 
     const txn = paystackRes.data.data;
-    if (txn.status !== 'success') {
-      return res.status(400).json({ success: false, error: 'Payment not successful', status: txn.status });
+    // Callers may only confirm payments for fleets they can see.
+    const metaVendor = txn?.metadata?.vendorId;
+    if (metaVendor && !(await prisma.vendor.findFirst({ where: { id: String(metaVendor), ...vendorWhere(req.user) }, select: { id: true } }))) {
+      return res.status(404).json({ success: false, error: 'Payment not found' });
     }
-
-    const { vendorId, plan, newStartDate, newExpiryDate } = txn.metadata || {};
-    if (!vendorId || !plan) return res.status(400).json({ success: false, error: 'Missing metadata' });
-
-    const sub = await activateSubscription({
-      vendorId, plan,
-      startDate: newStartDate ? new Date(newStartDate) : new Date(),
-      expiryDate: newExpiryDate ? new Date(newExpiryDate) : new Date(Date.now() + PLAN_DAYS * 86400000),
-      paystackAuthCode: txn.authorization?.authorization_code,
-      paystackEmail: txn.customer?.email,
-      reference,
-    });
-
-    res.json({ success: true, data: sub });
+    const result = await activateFromPaystack(txn, 'verify');
+    if (result.error) return res.status(400).json({ success: false, error: result.error });
+    res.json({ success: true, data: result.sub || null, alreadyProcessed: !!result.duplicate });
   } catch (err) { next(err); }
 };
 
@@ -183,7 +177,7 @@ async function activateSubscription({ vendorId, plan, startDate, expiryDate, pay
       subject: `✅ FleetAnchor Pro — ${plan} Plan ${isImmediate ? 'Activated' : 'Renewal Queued'}`,
       html: `
         <h2>Your ${plan} plan is ${isImmediate ? 'now active' : 'queued for renewal'}!</h2>
-        <p><strong>Company:</strong> ${sub.vendor.companyName}</p>
+        <p><strong>Company:</strong> ${escHtml(sub.vendor.companyName)}</p>
         <p><strong>Plan:</strong> ${plan}</p>
         <p><strong>${isImmediate ? 'Active from' : 'Starts'}:</strong> ${startDate.toDateString()}</p>
         <p><strong>Expires:</strong> ${expiryDate.toDateString()}</p>
@@ -199,9 +193,40 @@ async function activateSubscription({ vendorId, plan, startDate, expiryDate, pay
 
 exports.activateSubscription = activateSubscription;
 
+// One path for both the browser "verify" call and the Paystack webhook.
+// Checks the amount really covers the plan, and processes each payment reference
+// only once — before, the same payment could be replayed to stack free months,
+// and the verify call plus the webhook created two subscriptions per payment.
+async function activateFromPaystack(txn, source) {
+  if (!txn || txn.status !== 'success') return { error: 'Payment not successful' };
+  const { vendorId, plan } = txn.metadata || {};
+  if (!vendorId || !PLAN_AMOUNTS[plan]) return { error: 'Payment is not a subscription payment' };
+  if (txn.currency && txn.currency !== 'NGN') return { error: 'Unexpected currency' };
+  if (Number(txn.amount) < PLAN_AMOUNTS[plan] * 100) return { error: 'Amount paid does not cover this plan' };
+  const reference = String(txn.reference || '');
+  if (!reference) return { error: 'Missing reference' };
+
+  const already = await prisma.auditLog.findFirst({ where: { action: 'SUBSCRIPTION_PAID', entityId: reference }, select: { id: true } });
+  if (already) return { duplicate: true };
+  await auditService.log({ action: 'SUBSCRIPTION_PAID', entityType: 'Subscription', entityId: reference, actorLabel: `paystack:${source}`, metadata: { vendorId, plan, amount: txn.amount } });
+
+  const vendor = await prisma.vendor.findUnique({ where: { id: String(vendorId) }, select: { id: true } });
+  if (!vendor) return { error: 'Vendor not found' };
+  const currentSub = await prisma.subscription.findFirst({ where: { vendorId: vendor.id, status: { in: ['ACTIVE', 'TRIAL'] } }, orderBy: { expiryDate: 'desc' } });
+  const { startDate, expiryDate } = calcNewDates(currentSub);
+  const sub = await activateSubscription({
+    vendorId: vendor.id, plan, startDate, expiryDate,
+    paystackAuthCode: txn.authorization?.authorization_code,
+    paystackEmail: txn.customer?.email,
+    reference,
+  });
+  return { sub };
+}
+exports.activateFromPaystack = activateFromPaystack;
+
 exports.cancel = async (req, res, next) => {
   try {
-    const sub = await prisma.subscription.findUnique({ where: { id: req.params.id } });
+    const sub = await prisma.subscription.findFirst({ where: { id: req.params.id, ...vendorOwnedWhere(req.user) } });
     if (!sub) return res.status(404).json({ success: false, error: 'Subscription not found' });
 
     if (sub.paystackSubCode) {
@@ -223,6 +248,8 @@ exports.cancel = async (req, res, next) => {
 exports.extend = async (req, res, next) => {
   try {
     const { vendorId, days, plan } = req.body;
+    if (plan && !PLAN_AMOUNTS[plan]) return res.status(400).json({ success: false, error: 'Unknown plan' });
+    if (!(await prisma.vendor.findUnique({ where: { id: vendorId }, select: { id: true } }))) return res.status(404).json({ success: false, error: 'Vendor not found' });
     const currentSub = await prisma.subscription.findFirst({
       where: { vendorId, status: { in: ['ACTIVE', 'TRIAL'] } },
       orderBy: { expiryDate: 'desc' },

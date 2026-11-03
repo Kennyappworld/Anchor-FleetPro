@@ -28,7 +28,8 @@ export default {
     }
 
     // ── Block non-allowed origins on cross-origin requests ────────────────────
-    if (origin && !ALLOWED_ORIGINS.includes(origin) && !ALLOWED_ORIGINS.some(o => origin.endsWith(o.replace('https://', '')))) {
+    // Exact match only: the old suffix check also let "https://evilfleetanchor.com" through.
+    if (origin && !ALLOWED_ORIGINS.includes(origin)) {
       return new Response('Forbidden', { status: 403 });
     }
 

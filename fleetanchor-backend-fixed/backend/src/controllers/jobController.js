@@ -1,15 +1,21 @@
 const logger = require('../config/logger');
 const prisma = require('../config/prisma');
 const auditService = require('../services/auditService');
-const { sendEmail } = require('../services/emailService');
+const emailService = require('../services/emailService');
+const { generateJobNumber } = require('../utils/generators');
+const { jobWhere, vehicleWhere, isSuper, isOem } = require('../utils/tenant');
+
+// Workshop side moves a job through repair; the fleet side only closes or cancels via estimate response.
+const WORKSHOP_ROLES = ['SUPER_ADMIN', 'OEM_ADMIN', 'WORKSHOP_STAFF'];
 
 exports.create = async (req, res) => {
   try {
     const { vehicleId, category, description, priority } = req.body;
 
     // Validate vehicle belongs to caller's vendor
+    // `vendorId: undefined` meant "any vendor" for users without one.
     const vehicle = await prisma.vehicle.findFirst({
-      where: { id: vehicleId, vendorId: req.user.vendorId || undefined },
+      where: { id: vehicleId, ...vehicleWhere(req.user) },
       include: { vendor: { include: { users: { where: { role: { in: ['FLEET_MANAGER', 'OEM_ADMIN'] } } } } } },
     });
 
@@ -36,7 +42,7 @@ exports.create = async (req, res) => {
     });
 
     // Notify workshop staff
-    await emailService.sendJobSubmittedNotification({ job });
+    emailService.sendJobSubmittedNotification({ job }).catch(() => {});
 
     await auditService.log({ userId: req.user.userId, action: 'JOB_CREATED', entityType: 'job', entityId: job.id, ipAddress: req.ip, actorLabel: req.user.email });
 
@@ -52,18 +58,13 @@ exports.list = async (req, res) => {
     const { status, vehicleId, vendorId, page = 1, limit = 20, search } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    let where = {};
+    const take = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+    const where = { ...jobWhere(req.user) };
 
-    // Scope: field agents see only their vendor's jobs
-    if (req.user.role === 'FIELD_AGENT' || req.user.role === 'FLEET_MANAGER' || req.user.role === 'MAINTENANCE_SUPERVISOR') {
-      where.vehicle = { vendorId: req.user.vendorId };
-    } else if (req.user.role === 'OEM_ADMIN' || req.user.role === 'WORKSHOP_STAFF') {
-      where.vehicle = { vendor: { oemId: req.user.oemId } };
-    }
-
-    if (status) where.status = status;
-    if (vehicleId) where.vehicleId = vehicleId;
+    if (status) where.status = String(status);
+    if (vehicleId) where.vehicleId = String(vehicleId);
     if (search) {
+      const search = String(req.query.search).slice(0, 100);
       where.OR = [
         { jobNumber: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
@@ -82,13 +83,13 @@ exports.list = async (req, res) => {
           invoices: { take: 1 },
         },
         orderBy: { submittedAt: 'desc' },
-        skip,
-        take: parseInt(limit),
+        skip: Math.max(skip, 0) || 0,
+        take,
       }),
       prisma.jobRequest.count({ where }),
     ]);
 
-    return res.json({ success: true, jobs, pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / parseInt(limit)) } });
+    return res.json({ success: true, jobs, pagination: { total, page: parseInt(page) || 1, limit: take, pages: Math.ceil(total / take) } });
   } catch (err) {
     logger.error('List jobs error:', err);
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -97,8 +98,8 @@ exports.list = async (req, res) => {
 
 exports.get = async (req, res) => {
   try {
-    const job = await prisma.jobRequest.findUnique({
-      where: { id: req.params.id },
+    const job = await prisma.jobRequest.findFirst({
+      where: { id: req.params.id, ...jobWhere(req.user) },
       include: {
         vehicle: { include: { vendor: true } },
         createdBy: { select: { fullName: true, email: true } },
@@ -120,8 +121,18 @@ exports.updateStatus = async (req, res) => {
     const { status, note, bayNumber, technicianId } = req.body;
     const { id } = req.params;
 
-    const job = await prisma.jobRequest.findUnique({ where: { id }, include: { vehicle: { include: { vendor: { include: { users: true } } } } } });
+    const job = await prisma.jobRequest.findFirst({ where: { id, ...jobWhere(req.user) }, include: { vehicle: { include: { vendor: { include: { users: true } } } } } });
     if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+
+    // Only the workshop moves a job through repair stages; a fleet can only close its own job.
+    const internal = req._internalStatusChange === true;
+    if (!internal && !WORKSHOP_ROLES.includes(req.user.role) && status !== 'CLOSED') {
+      return res.status(403).json({ success: false, error: 'Only the workshop can change this job status' });
+    }
+    if (technicianId) {
+      const tech = await prisma.user.findFirst({ where: { id: String(technicianId), role: 'WORKSHOP_STAFF', ...(isSuper(req.user) ? {} : { oemId: req.user.oemId || '00000000-0000-0000-0000-000000000000' }) } });
+      if (!tech) return res.status(400).json({ success: false, error: 'Technician not found' });
+    }
 
     const updateData = { status };
     const now = new Date();
@@ -147,12 +158,12 @@ exports.updateStatus = async (req, res) => {
       const vendorEmails = job.vehicle.vendor.users
         .filter(u => ['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR'].includes(u.role))
         .map(u => u.email);
-      await emailService.sendEstimateReady({ job, vendorEmails });
+      emailService.sendEstimateReady({ job, vendorEmails }).catch(() => {});
     }
 
     if (status === 'REPAIR_COMPLETE') {
       const vendorEmails = job.vehicle.vendor.users.filter(u => u.role === 'FLEET_MANAGER').map(u => u.email);
-      await emailService.sendRepairComplete({ job, vendorEmails });
+      emailService.sendRepairComplete({ job, vendorEmails }).catch(() => {});
     }
 
     await auditService.log({ userId: req.user.userId, action: `JOB_STATUS_${status}`, entityType: 'job', entityId: id, ipAddress: req.ip, actorLabel: req.user.email });
@@ -173,16 +184,23 @@ exports.respondToEstimate = async (req, res) => {
       return res.status(403).json({ success: false, error: 'Only fleet managers can approve/query estimates' });
     }
 
+    // The job must belong to the caller's own fleet.
+    const job = await prisma.jobRequest.findFirst({ where: { id, ...jobWhere(req.user) }, select: { id: true } });
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+
     const estimate = await prisma.estimate.findFirst({ where: { jobId: id }, orderBy: { revision: 'desc' } });
     if (!estimate) return res.status(404).json({ success: false, error: 'No estimate found for this job' });
+    if (estimate.status !== 'PENDING' && estimate.status !== 'QUERIED') {
+      return res.status(409).json({ success: false, error: `Estimate is already ${String(estimate.status).toLowerCase()}` });
+    }
 
     if (action === 'approve') {
       await prisma.estimate.update({ where: { id: estimate.id }, data: { status: 'APPROVED', approvedAt: new Date() } });
-      await exports.updateStatus({ params: { id }, body: { status: 'ESTIMATE_APPROVED', note: 'Estimate approved by vendor' }, user: req.user, ip: req.ip }, res);
+      await exports.updateStatus({ params: { id }, body: { status: 'ESTIMATE_APPROVED', note: 'Estimate approved by vendor' }, user: req.user, ip: req.ip, _internalStatusChange: true }, res);
     } else if (action === 'query') {
       await prisma.estimate.update({ where: { id: estimate.id }, data: { status: 'QUERIED', queryNote } });
       await prisma.jobRequest.update({ where: { id }, data: { status: 'ESTIMATE_QUERIED' } });
-      await prisma.jobTimeline.create({ data: { jobId: id, status: 'ESTIMATE_QUERIED', actorId: req.user.userId, actorName: req.user.email, note: `Queried: ${queryNote}` } });
+      await prisma.jobTimeline.create({ data: { jobId: id, status: 'ESTIMATE_QUERIED', actorId: req.user.userId, actorName: req.user.email, note: `Queried: ${String(queryNote || '').slice(0, 1000)}` } });
       return res.json({ success: true, message: 'Estimate queried. Workshop has been notified.' });
     }
   } catch (err) {
@@ -194,8 +212,9 @@ exports.vehicleHistory = async (req, res) => {
   try {
     const { vin, plateNumber } = req.query;
 
+    if (!vin && !plateNumber) return res.status(400).json({ success: false, error: 'vin or plateNumber required' });
     const vehicle = await prisma.vehicle.findFirst({
-      where: vin ? { vin } : { plateNumber },
+      where: { ...(vin ? { vin: String(vin) } : { plateNumber: String(plateNumber) }), ...vehicleWhere(req.user) },
       include: { vendor: { select: { companyName: true } } },
     });
 

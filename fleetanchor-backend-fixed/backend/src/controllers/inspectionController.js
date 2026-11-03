@@ -66,7 +66,7 @@ exports.scanVehicle = async (req, res) => {
         documents: { where: { expiryDate: { gte: new Date() } }, orderBy: { expiryDate: 'asc' } },
         tyreRecords: { where: { isCurrent: true }, orderBy: { position: 'asc' } },
         tyreConfig: true,
-        jobRequests: { orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, jobNumber: true, status: true, description: true, createdAt: true } },
+        jobRequests: { orderBy: { submittedAt: 'desc' }, take: 5, select: { id: true, jobNumber: true, status: true, description: true, submittedAt: true } },
       },
     });
 
@@ -146,7 +146,7 @@ exports.scanVehicle = async (req, res) => {
     });
   } catch (err) {
     logger.error('scanVehicle error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
@@ -156,15 +156,6 @@ exports.captureOdometer = async (req, res) => {
     const driverId = req.user.userId;
 
     if (!sessionToken || !odometer) return res.status(400).json({ success: false, error: 'sessionToken and odometer required' });
-
-    // Validate tyre positions count to prevent abuse
-    if (tyres && Object.keys(tyres).length > 20) {
-      return res.status(400).json({ success: false, error: 'Too many tyre positions submitted' });
-    }
-    // Validate notes length
-    if (notes && notes.length > 2000) {
-      return res.status(400).json({ success: false, error: 'Notes too long (max 2000 characters)' });
-    }
 
     const session = await prisma.inspectionSession.findUnique({ where: { sessionToken } });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
@@ -188,7 +179,7 @@ exports.captureOdometer = async (req, res) => {
 
     res.json({ success: true, data: { odometer: parseInt(odometer), remainingSeconds: Math.max(0, Math.floor((session.expiresAt - new Date()) / 1000)) } });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
@@ -198,7 +189,16 @@ exports.submitInspection = async (req, res) => {
     const driverId = req.user.userId;
     const vendorId = req.user.vendorId;
 
-    const session = await prisma.inspectionSession.findUnique({ where: { sessionToken } });
+    // These checks used to sit in captureOdometer, where `tyres` and `notes` don't
+    // exist, so every odometer capture crashed.
+    if (tyres && (typeof tyres !== 'object' || Object.keys(tyres).length > 20)) {
+      return res.status(400).json({ success: false, error: 'Too many tyre positions submitted' });
+    }
+    if (notes && String(notes).length > 2000) {
+      return res.status(400).json({ success: false, error: 'Notes too long (max 2000 characters)' });
+    }
+
+    const session = await prisma.inspectionSession.findUnique({ where: { sessionToken: String(sessionToken || '') } });
     if (!session || session.driverId !== driverId) return res.status(403).json({ success: false, error: 'Invalid session' });
     if (session.status !== 'OPEN' || new Date() > session.expiresAt) return res.status(400).json({ success: false, error: 'Session expired. Please scan vehicle again.' });
     if (!session.odometerCaptured) return res.status(400).json({ success: false, error: 'Odometer not yet captured for this session.' });
@@ -291,7 +291,7 @@ exports.submitInspection = async (req, res) => {
     res.status(201).json({ success: true, data: { inspectionId: inspection.id, auditHash, odometer, deltaKm, tyreAlerts, tyreSnapshots } });
   } catch (err) {
     logger.error('submitInspection error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 };
 
@@ -344,7 +344,7 @@ exports.listForVehicle = async (req, res) => {
       prisma.tyreRecord.findMany({ where: { vehicleId }, orderBy: [{ position: 'asc' }, { fittedAt: 'desc' }] }),
     ]);
     res.json({ success: true, data: { inspections, tyreHistory } });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.currentTyres = async (req, res) => {
@@ -355,7 +355,7 @@ exports.currentTyres = async (req, res) => {
     if (!vehicle) return res.status(404).json({ success: false, error: 'Vehicle not found' });
     const tyres = await prisma.tyreRecord.findMany({ where: { vehicleId, isCurrent: true }, orderBy: { position: 'asc' } });
     res.json({ success: true, data: tyres });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.registerTyreChange = async (req, res) => {
@@ -370,7 +370,7 @@ exports.registerTyreChange = async (req, res) => {
     });
     await logAction(req, 'TYRE_REGISTERED', 'TyreRecord', tyre.id, { vehicleId, position, serialNumber });
     res.status(201).json({ success: true, data: tyre });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.setTyreConfig = async (req, res) => {
@@ -385,7 +385,7 @@ exports.setTyreConfig = async (req, res) => {
       create: { vehicleId, totalTyres: totalTyres || 4, positions: positions || ['FL','FR','RL','RR'], rotationInterval: rotationInterval || null, replacementKm: replacementKm || null, updatedBy: req.user.userId },
     });
     res.json({ success: true, data: config });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.getTemplates = async (req, res) => {
@@ -393,7 +393,7 @@ exports.getTemplates = async (req, res) => {
     const vendorId = req.user.vendorId;
     const templates = await prisma.checklistTemplate.findMany({ where: { vendorId }, orderBy: { isDefault: 'desc' } });
     res.json({ success: true, data: templates });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.saveTemplate = async (req, res) => {
@@ -403,12 +403,15 @@ exports.saveTemplate = async (req, res) => {
     if (isDefault) await prisma.checklistTemplate.updateMany({ where: { vendorId, type }, data: { isDefault: false } });
     let template;
     if (id) {
-      template = await prisma.checklistTemplate.update({ where: { id }, data: { name, type, items, isDefault: isDefault || false } });
+      // Only this fleet's own templates can be edited.
+      const own = await prisma.checklistTemplate.findFirst({ where: { id: String(id), vendorId } });
+      if (!own) return res.status(404).json({ success: false, error: 'Template not found' });
+      template = await prisma.checklistTemplate.update({ where: { id: own.id }, data: { name, type, items, isDefault: isDefault || false } });
     } else {
       template = await prisma.checklistTemplate.create({ data: { vendorId, name, type: type || 'PRE_TRIP', items, isDefault: isDefault || false } });
     }
     res.json({ success: true, data: template });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.driverLeaderboard = async (req, res) => {
@@ -427,7 +430,7 @@ exports.driverLeaderboard = async (req, res) => {
     const driverMap = Object.fromEntries(drivers.map(d => [d.id, d]));
     const enriched = scores.map((s, i) => ({ ...s, rank: i + 1, driver: driverMap[s.driverId] || { fullName: 'Unknown' } }));
     res.json({ success: true, data: enriched });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.dashboardSummary = async (req, res) => {
@@ -445,14 +448,14 @@ exports.dashboardSummary = async (req, res) => {
     ]);
 
     res.json({ success: true, data: { totalInspections, recentInspections, vehiclesInspectedThisMonth: vehiclesInspected.length, tyreAlerts: tyreAlertCount, access } });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.listFeatureFlags = async (req, res) => {
   try {
     const flags = await prisma.featureFlag.findMany({ orderBy: { key: 'asc' } });
     res.json({ success: true, data: flags });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };
 
 exports.toggleFeatureFlag = async (req, res) => {
@@ -465,5 +468,5 @@ exports.toggleFeatureFlag = async (req, res) => {
     });
     await logAction(req, `FEATURE_${enabled ? 'ENABLED' : 'DISABLED'}`, 'FeatureFlag', flag.id, { key });
     res.json({ success: true, data: flag });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) { res.status(500).json({ success: false, error: 'Server error' }); }
 };

@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const prisma = require('../config/prisma');
+const logger = require('../config/logger');
 
 // Each record contains the SHA-256 hash of the previous record,
 // making deletion or tampering detectable by chain verification.
@@ -71,11 +72,18 @@ exports.verifyChain = async () => {
   return { intact: !broken, brokenAt };
 };
 
-exports.getAuditLogs = async ({ userId, entityType, entityId, from, to, page = 1, limit = 50 }) => {
+exports.getAuditLogs = async ({ userId, entityType, entityId, from, to, page = 1, limit = 50 }, viewer) => {
+  page = Math.max(parseInt(page) || 1, 1);
+  limit = Math.min(Math.max(parseInt(limit) || 50, 1), 10000);
   const where = {};
-  if (userId) where.userId = userId;
-  if (entityType) where.entityType = entityType;
-  if (entityId) where.entityId = entityId;
+  // OEM admins see only their own people's activity (they used to see every tenant's log).
+  if (viewer && viewer.role !== 'SUPER_ADMIN') {
+    const { userWhere } = require('../utils/tenant');
+    where.user = { is: userWhere(viewer) };
+  }
+  if (userId) where.userId = String(userId);
+  if (entityType) where.entityType = String(entityType);
+  if (entityId) where.entityId = String(entityId);
   if (from || to) where.createdAt = { ...(from && { gte: new Date(from) }), ...(to && { lte: new Date(to) }) };
 
   const [logs, total] = await Promise.all([

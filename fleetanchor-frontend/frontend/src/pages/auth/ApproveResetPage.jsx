@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import { CheckCircle, XCircle, Loader } from 'lucide-react';
 import api from '../../services/api';
@@ -9,22 +9,22 @@ export default function ApproveResetPage() {
   const [params] = useSearchParams();
   const action = params.get('action') || 'approve';
 
-  const [status, setStatus] = useState('loading'); // loading | done | error
+  // Nothing happens until the manager presses the button. Previously opening the
+  // link approved the reset at once, so an email link-scanner could approve it.
+  const [status, setStatus] = useState('confirm'); // confirm | loading | done | error
   const [msg, setMsg] = useState('');
 
-  useEffect(() => {
-    const run = async () => {
-      try {
-        const res = await api.get(`/auth/approve-reset/${token}?action=${action}`);
-        setMsg(res.data.message);
-        setStatus('done');
-      } catch (err) {
-        setMsg(err.response?.data?.error || 'This link has expired or already been used.');
-        setStatus('error');
-      }
-    };
-    run();
-  }, [token, action]);
+  const run = async () => {
+    setStatus('loading');
+    try {
+      const res = await api.post(`/auth/approve-reset/${encodeURIComponent(token)}`, { action });
+      setMsg(res.data.message);
+      setStatus('done');
+    } catch (err) {
+      setMsg(err.response?.data?.error || 'This link has expired or already been used.');
+      setStatus('error');
+    }
+  };
 
   const approved = action === 'approve';
 
@@ -39,6 +39,21 @@ export default function ApproveResetPage() {
         </div>
 
         <div className="card p-6 text-center">
+          {status === 'confirm' && (
+            <>
+              <h2 className="text-base font-bold text-white mb-2">
+                {action === 'approve' ? 'Approve this password reset?' : 'Reject this password reset?'}
+              </h2>
+              <p className="text-sm text-slate-300 mb-4">
+                Only approve if you know this person asked for it.
+              </p>
+              <button type="button" onClick={run} className="btn-primary justify-center py-2.5 text-sm w-full">
+                {action === 'approve' ? 'Yes, approve reset' : 'Yes, reject reset'}
+              </button>
+              <Link to="/login" className="text-xs text-slate-400 hover:text-white block mt-3">Cancel</Link>
+            </>
+          )}
+
           {status === 'loading' && (
             <>
               <Loader className="w-10 h-10 text-gold mx-auto mb-3 animate-spin" />

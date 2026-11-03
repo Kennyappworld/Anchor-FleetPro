@@ -1,6 +1,7 @@
 import axios from "axios";
 
-const API_BASE = "https://anchor-fleetpro.onrender.com/api";
+// Set VITE_API_URL (e.g. https://api.example.com/api) in Vercel; the fallback keeps today's behaviour.
+const API_BASE = (import.meta.env.VITE_API_URL || "https://anchor-fleetpro.onrender.com/api").replace(/\/$/, "");
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -30,9 +31,13 @@ api.interceptors.response.use(
         const stored = JSON.parse(localStorage.getItem("fleetanchor-auth") || "{}");
         const refreshToken = stored?.state?.refreshToken;
         if (refreshToken) {
-          const res = await axios.post(`${RAILWAY_URL}/api/auth/refresh`, { refreshToken });
-          const { accessToken } = res.data.data;
-          const newStored = { ...stored, state: { ...stored.state, accessToken } };
+          // RAILWAY_URL was never defined, so every refresh failed and users were
+          // signed out after 15 minutes. Use the same API address as everything else.
+          const res = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
+          const accessToken = res.data.accessToken || res.data.data?.accessToken;
+          const newRefresh = res.data.refreshToken || res.data.data?.refreshToken || refreshToken;
+          if (!accessToken) throw new Error("refresh failed");
+          const newStored = { ...stored, state: { ...stored.state, accessToken, refreshToken: newRefresh } };
           localStorage.setItem("fleetanchor-auth", JSON.stringify(newStored));
           original.headers.Authorization = `Bearer ${accessToken}`;
           return api(original);
@@ -59,7 +64,7 @@ export const authService = {
   // Password reset — Manager approval flow
   requestReset: (data) => api.post("/auth/request-reset", data),
   getPendingResets: () => api.get("/auth/pending-resets"),
-  approveReset: (token, action, note) => api.get(`/auth/approve-reset/${token}?action=${action}&note=${encodeURIComponent(note||'')}`),
+  approveReset: (token, action, note) => api.post(`/auth/approve-reset/${encodeURIComponent(token)}`, { action, note }),
   // Manager issues credentials to a user
   issueCredentials: (data) => api.post("/auth/issue-credentials", data),
   // Vendor invite

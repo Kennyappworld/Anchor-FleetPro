@@ -65,7 +65,7 @@ async function checkComplianceAlerts() {
             users: {
               where: { role: 'FLEET_MANAGER', active: true },
               take: 2,
-              select: { email: true, name: true },
+              select: { email: true, fullName: true },
             },
           },
         },
@@ -97,7 +97,7 @@ async function checkComplianceAlerts() {
         ? vendor.users.map(u => u.email)
         : [vendor.contactEmail];
 
-      const recipientName = vendor.users?.[0]?.name || vendor.companyName;
+      const recipientName = vendor.users?.[0]?.fullName || vendor.companyName;
 
       for (const toEmail of recipientEmails) {
         if (!toEmail) continue;
@@ -254,7 +254,7 @@ async function checkServiceAlertsBatched() {
     },
     include: {
       vendor: {
-        include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, name: true } } },
+        include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, fullName: true } } },
       },
     },
   });
@@ -269,7 +269,7 @@ async function checkServiceAlertsBatched() {
     },
     include: {
       vendor: {
-        include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, name: true } } },
+        include: { users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, fullName: true } } },
       },
     },
   });
@@ -297,7 +297,7 @@ async function checkServiceAlertsBatched() {
     const emails = vendor.users?.length > 0
       ? vendor.users.map(u => u.email)
       : [vendor.contactEmail];
-    const recipientName = vendor.users?.[0]?.name || vendor.companyName;
+    const recipientName = vendor.users?.[0]?.fullName || vendor.companyName;
 
     const vehicleRows = vehicles.map(v => {
       const daysLeft = v.nextServiceDate
@@ -403,7 +403,7 @@ async function checkDriverLicenceAlerts() {
       include: {
         vendor: {
           include: {
-            users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, name: true } },
+            users: { where: { role: 'FLEET_MANAGER', active: true }, take: 2, select: { email: true, fullName: true } },
           },
         },
       },
@@ -421,7 +421,7 @@ async function checkDriverLicenceAlerts() {
     for (const [vendorId, group] of Object.entries(byVendor)) {
       const { vendor, licences: vendorLics } = group;
       const emails = vendor.users?.length > 0 ? vendor.users.map(u => u.email) : [vendor.contactEmail];
-      const recipientName = vendor.users?.[0]?.name || vendor.companyName;
+      const recipientName = vendor.users?.[0]?.fullName || vendor.companyName;
 
       const licRows = vendorLics.map(l => {
         const exp = new Date(l.expiryDate);
