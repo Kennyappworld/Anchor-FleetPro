@@ -1,19 +1,17 @@
+# Used when a host (e.g. Railway) builds from the repository root.
+# The API lives in fleetanchor-backend-fixed/backend.
 [phases.setup]
-nixPkgs = ["nodejs_20", "openssl", "chromium", "nss", "freetype", "harfbuzz", "ca-certificates", "ttf-opensans"]
+nixPkgs = ["nodejs_20", "openssl"]
 
 [phases.install]
-cmds = ["npm ci"]
+cmds = ["cd fleetanchor-backend-fixed/backend && npm ci"]
 
 [phases.build]
-cmds = [
-  "npx prisma generate",
-  "echo 'Build complete — migrations run at deploy time'"
-]
+cmds = ["cd fleetanchor-backend-fixed/backend && npm run build"]
 
 [start]
-cmd = "npx prisma migrate deploy && node src/server.js"
+# db:sync stops instead of deleting data if the schema change is destructive.
+cmd = "cd fleetanchor-backend-fixed/backend && npm run db:sync && npm start"
 
 [variables]
-PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = "true"
-PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium"
 NODE_ENV = "production"

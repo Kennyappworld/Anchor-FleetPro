@@ -1,11 +1,15 @@
+# Used when a host builds with this folder as the root directory.
 [phases.setup]
 nixPkgs = ["nodejs_20", "openssl"]
 
 [phases.install]
-cmds = ["npm install --legacy-peer-deps"]
+cmds = ["npm ci"]
 
 [phases.build]
 cmds = ["npm run build"]
 
 [start]
-cmd = "node src/server.js"
+cmd = "npm run db:sync && npm start"
+
+[variables]
+NODE_ENV = "production"

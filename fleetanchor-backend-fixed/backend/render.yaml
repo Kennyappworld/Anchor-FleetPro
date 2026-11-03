@@ -1,3 +1,9 @@
+# FleetAnchor Pro API on Render.
+#
+# Database changes: `npm run db:sync` applies schema.prisma to the database but
+# STOPS if a change would delete data (the old start command used
+# --accept-data-loss, which silently dropped columns/tables on every boot).
+# A blocked deploy is the signal to plan a proper data migration first.
 services:
   - type: web
     name: anchor-fleetpro
@@ -5,8 +11,30 @@ services:
     region: oregon
     plan: free
     rootDir: fleetanchor-backend-fixed/backend
-    buildCommand: npm install --legacy-peer-deps && npm install --save-exact prisma@5.10.2 @prisma/client@5.10.2 && npx prisma generate
-    startCommand: npx prisma db push --accept-data-loss && node src/server.js
+    buildCommand: npm ci && npm run build
+    # Free instances can't use preDeployCommand, so the safe sync runs at start.
+    startCommand: npm run db:sync && npm start
+    healthCheckPath: /health
+    autoDeploy: true
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NODE_VERSION
+        value: "20"
+      # Secrets — set these in the Render dashboard (sync: false keeps them out of this file).
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET            # 32+ random characters
+        sync: false
+      - key: JWT_REFRESH_SECRET    # 32+ random characters, different from JWT_SECRET
+        sync: false
+      - key: FRONTEND_URL          # e.g. https://anchor-fleet-pro.vercel.app
+        sync: false
+      - key: CORS_ORIGINS          # optional extra web addresses, comma-separated
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
