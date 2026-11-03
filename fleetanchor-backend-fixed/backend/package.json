@@ -4,8 +4,10 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "build": "npx prisma generate",
-    "seed": "node prisma/seed.js"
+    "build": "prisma generate",
+    "db:sync": "prisma db push --skip-generate",
+    "seed": "node prisma/seed.js",
+    "test": "node test/security.test.js"
   },
   "dependencies": {
     "@prisma/client": "5.10.2",
@@ -25,17 +27,14 @@
     "nodemailer": "6.9.11",
     "otplib": "12.0.1",
     "pg": "^8.21.0",
+    "prisma": "5.10.2",
     "uuid": "9.0.1",
     "winston": "3.12.0",
     "winston-daily-rotate-file": "5.0.0",
     "zod": "3.22.4"
   },
-  "devDependencies": {
-    "prisma": "5.10.2"
-  },
   "engines": {
-    "node": "20.x",
-    "npm": ">=9.0.0"
+    "node": ">=20 <23"
   },
   "description": "FleetAnchor Pro - Fleet and Maintenance Management Platform"
 }
