@@ -117,10 +117,10 @@ export default function TeamChatPage() {
   });
 
   return (
-    <div className="flex h-full" style={{ height:'calc(100vh - 48px)' }}>
+    <div className="flex h-full min-h-0">
 
       {/* Left: channel + member list */}
-      <div className="w-44 border-r border-white/[0.08] flex flex-col flex-shrink-0" style={{ backgroundColor:'#0a1628' }}>
+      <div className="hidden md:flex w-44 border-r border-white/[0.08] flex-col flex-shrink-0" style={{ backgroundColor:'#0a1628' }}>
         <div className="px-3 py-3 border-b border-white/[0.08]">
           <div className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-2">Channels</div>
           {CHANNELS.map(c => (
@@ -165,11 +165,16 @@ export default function TeamChatPage() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.08] flex-shrink-0" style={{ backgroundColor:'#0d1f38' }}>
-          <Hash className="w-4 h-4 text-[var(--text3)]"/>
-          <div>
+          <Hash className="w-4 h-4 text-[var(--text3)] flex-shrink-0"/>
+          <div className="min-w-0 flex-1">
             <div className="text-[13px] font-semibold text-white">{ch?.name}</div>
-            <div className="text-[10px] text-white/40">{ch?.desc} · {msgs.length} messages</div>
+            <div className="text-[11px] text-white/40 truncate">{ch?.desc} · {msgs.length} messages</div>
           </div>
+          {/* Phones: channel picker replaces the side list */}
+          <select value={channel} onChange={e => setChannel(e.target.value)} aria-label="Channel"
+            className="md:hidden form-input w-auto max-w-[45%] py-1.5">
+            {CHANNELS.filter(c => !c.locked).map(c => <option key={c.id} value={c.id}>#{c.name}</option>)}
+          </select>
         </div>
 
         {/* Messages */}

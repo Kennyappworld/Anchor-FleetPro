@@ -33,7 +33,7 @@ export default function AnalyticsPage() {
 
       <div className="p-5 space-y-4">
         {/* KPI row */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {[['Total Revenue','₦185.4M','+34% YoY'],['Total Jobs','1,064','avg 4.2d turnaround'],['Active Vendors','6','2 on Enterprise'],['Fleet Size','1,236','across all vendors']].map(([l,v,s])=>(
             <div key={l} className="stat-card">
               <div className="text-[9px] uppercase tracking-wider text-[var(--text3)] mb-1">{l}</div>
@@ -44,8 +44,8 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Charts row */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="col-span-2 panel">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 panel min-w-0">
             <div className="text-xs font-semibold text-[var(--text)] mb-3">Monthly Revenue & Job Volume</div>
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={REVENUE}>

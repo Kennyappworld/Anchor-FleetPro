@@ -79,7 +79,7 @@ export default function SubscriptionsPage() {
 
       <div className="p-5">
         {/* KPI row */}
-        <div className="grid grid-cols-4 gap-3 mb-5">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
           {[
             ['Active',        subs.filter(s => s.status==='ACTIVE').length,    'pill-active'],
             ['Trial',         subs.filter(s => s.status==='TRIAL').length,     'bg-purple-500/15 text-purple-400'],

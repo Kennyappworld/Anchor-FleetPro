@@ -182,3 +182,100 @@ body {
 .panel { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
 .panel-title { font-size: 12px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
 .loading { display: flex; align-items: center; justify-content: center; height: 128px; font-size: 14px; color: var(--text3); }
+
+/* ── Page header (used by every screen; was never defined, so titles sat on the screen edge) ── */
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Phones and small tablets
+   ══════════════════════════════════════════════════════════════════════ */
+@media (max-width: 1023px) {
+  .two-col, .three-col { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  body { font-size: 14px; -webkit-text-size-adjust: 100%; }
+  .page-header { padding: 12px 16px; }
+  .page-header h1 { font-size: 16px; }
+  .content { padding: 14px 16px; }
+  .topbar { padding: 10px 16px; }
+  .p-5 { padding: 16px; }
+  .p-6 { padding: 16px; }
+
+  /* Readable text: nothing smaller than 11px on a phone */
+  .text-\[7px\], .text-\[8px\], .text-\[9px\] { font-size: 11px !important; }
+  .text-\[10px\] { font-size: 11px !important; }
+  .stat-label, .stat-sub, .form-label, .tbl thead th { font-size: 11px; }
+  .stat-label { letter-spacing: 0.4px; }
+  .stat-card { padding: 12px 14px; min-width: 0; }
+  .stat-value { font-size: 20px; overflow-wrap: anywhere; }
+
+  /* 16px inputs stop iPhone zooming the page when a field is tapped */
+  .form-input, input:not([type=checkbox]):not([type=radio]), select, textarea { font-size: 16px !important; }
+  .form-input { padding: 10px 12px; }
+
+  /* Comfortable tap targets (Apple/Google guidance: 44px) */
+  .btn-primary, .btn-ghost, .btn-danger, .btn-success, .btn-teal { min-height: 40px; }
+  .btn-ghost.p-1\.5, header button, .page-header button:not(.h-4) { min-width: 40px; min-height: 40px; justify-content: center; }
+  .nav-item { padding: 12px 16px; font-size: 14px; }
+  .nav-item .text-xs { font-size: 14px; }
+
+  /* Wide tables become one card per row */
+  .table-wrap { overflow: visible; }
+  table.m-cards, table.m-cards tbody, table.m-cards tr, table.m-cards td { display: block; width: 100%; }
+  table.m-cards thead { display: none; }
+  table.m-cards tbody tr { padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  table.m-cards tbody tr:last-child { border-bottom: none; }
+  table.m-cards tbody td {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 4px 0 !important; border: 0 !important; text-align: right;
+    max-width: none !important; white-space: normal; overflow: visible; text-overflow: clip;
+    font-size: 13px; min-width: 0; overflow-wrap: anywhere;
+  }
+  table.m-cards tbody td::before {
+    content: attr(data-label); flex-shrink: 0; max-width: 45%;
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3);
+  }
+  table.m-cards tbody td[data-label=""]::before { content: none; }
+  table.m-cards tbody td[data-label=""] { justify-content: flex-end; }
+  table.m-cards tbody td[colspan] { justify-content: center; text-align: center; }
+  table.m-cards tbody td[colspan]::before { content: none; }
+  table.m-cards tbody td > * { min-width: 0; }
+  table.m-cards tbody td .truncate { white-space: normal; overflow: visible; }
+  table.m-cards tbody td .block { display: block; }
+  table.m-cards tbody td:first-child { font-size: 14px; font-weight: 600; }
+
+  /* Modals use the whole phone screen width */
+  .fixed.inset-0 > .max-w-md, .fixed.inset-0 > .max-w-lg, .fixed.inset-0 > .max-w-xl, .fixed.inset-0 > .max-w-2xl { max-height: 92vh; overflow-y: auto; }
+}
+.app-shell { height: 100vh; height: 100dvh; }
+@media (max-width: 640px) {
+  button:not(.h-4):not(.h-5), select, a.btn-primary, a.btn-ghost { min-height: 36px; }
+  aside button, aside a, aside .nav-item { min-height: 44px; }
+  td button:not(.h-4) { min-height: 32px; }
+}
+
+@layer components {
+/* `.input` is used by a few screens but was never styled (showed as a white browser box) */
+.input {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: var(--text);
+  outline: none;
+}
+.input:focus { border-color: var(--gold); }
+.input::placeholder, .form-input::placeholder { color: var(--text3); }
+}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Wrench, Scan, Truck, History, Receipt, Users, CreditCard, LogOut, MessageCircle, Menu, X, Bell, ChevronRight, ShieldCheck, UserCheck } from 'lucide-react';
 import { PoweredBy } from '../../pages/auth/ForgotPasswordPage';
+import useMobileTables from '../../hooks/useMobileTables';
 import { useAuthStore } from '../../context/authStore';
 import ChangePasswordModal from './ChangePasswordModal';
 import toast from 'react-hot-toast';
@@ -34,6 +35,8 @@ export default function VendorLayout() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const drawerRef = useRef(null);
+  const mainRef = useRef(null);
+  useMobileTables(mainRef);
 
   // Close on route change
   useEffect(() => { setOpen(false); }, [location.pathname]);
@@ -131,7 +134,7 @@ export default function VendorLayout() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex app-shell overflow-hidden">
 
       {/* ── Desktop sidebar ── */}
       <aside className="hidden lg:flex w-52 bg-[var(--navy-2)] border-r border-white/[0.08] flex-col flex-shrink-0">
@@ -177,7 +180,7 @@ export default function VendorLayout() {
           </button>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-navy">
+        <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-safe bg-navy">
           <Outlet />
         </main>
       </div>

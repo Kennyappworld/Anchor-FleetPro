@@ -21,6 +21,7 @@ router.patch("/:id/status",
   param("id").isUUID(),
   // Only the statuses that exist in the database (the others always failed with a server error).
   body("status").isIn(["SUBMITTED","DIAGNOSED","ESTIMATE_SENT","ESTIMATE_APPROVED","ESTIMATE_QUERIED","REPAIR_STARTED","REPAIR_COMPLETE","AWAITING_PAYMENT","CLOSED"]),
+  body("note").optional({ nullable: true }).isString().isLength({ max: 1000 }),
   validate,
   jc.updateStatus
 );
@@ -29,6 +30,7 @@ router.post("/:id/estimate-response",
   requireRole(["FLEET_MANAGER","MAINTENANCE_SUPERVISOR","OEM_ADMIN","SUPER_ADMIN"]),
   param("id").isUUID(),
   body("action").isIn(["approve","query"]),
+  body("queryNote").optional({ nullable: true }).isString().isLength({ max: 1000 }),
   validate,
   jc.respondToEstimate
 );

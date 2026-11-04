@@ -109,7 +109,7 @@ export default function SettingsPage() {
   const Section = ({ title, children }) => (
     <div className="card p-4 mb-4">
       <div className="text-xs font-bold text-gold uppercase tracking-wider mb-4 pb-2 border-b border-white/[0.08]">{title}</div>
-      <div className="grid grid-cols-2 gap-3">{children}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{children}</div>
     </div>
   );
 

@@ -56,7 +56,7 @@ export default function VendorInvoicesPage() {
 
       <div className="p-5 space-y-4">
         {/* Summary cards */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="stat-card flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-green-500/15 flex items-center justify-center flex-shrink-0">
               <CheckCircle size={15} className="text-green-400" />

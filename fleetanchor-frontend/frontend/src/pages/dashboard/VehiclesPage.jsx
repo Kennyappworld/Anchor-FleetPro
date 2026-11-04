@@ -167,7 +167,7 @@ export default function VehiclesPage() {
                   {vendors.map(v => <option key={v.id} value={v.id}>{v.companyName}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   ['vin','VIN / Chassis *','WNXNF4327A6…',false],
                   ['plateNumber','Plate Number *','LND-421-XY',false],

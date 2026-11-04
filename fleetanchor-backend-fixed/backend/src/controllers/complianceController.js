@@ -213,6 +213,12 @@ exports.bulkImport = async (req, res) => {
     if (!Array.isArray(rows) || rows.length === 0) {
       return res.status(400).json({ success: false, error: 'No rows provided' });
     }
+    if (rows.length > 1000) {
+      return res.status(400).json({ success: false, error: 'Import at most 1,000 rows at a time' });
+    }
+    if (!vendorId) {
+      return res.status(400).json({ success: false, error: 'Bulk import is done from a fleet account' });
+    }
 
     const results = { created: 0, failed: [], skipped: 0 };
 

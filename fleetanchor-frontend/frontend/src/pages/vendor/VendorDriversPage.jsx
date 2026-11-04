@@ -186,7 +186,7 @@ export default function VendorDriversPage() {
 
   const LicenceForm = ({ data, setData }) => (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="col-span-2">
           <label className="label">Driver Name *</label>
           <input className="input w-full" placeholder="e.g. John Doe" value={data.driverName}

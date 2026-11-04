@@ -406,7 +406,7 @@ export default function VendorsPage() {
                 onChange={v => setForm(f => ({...f, email:v}))} placeholder="fleet@company.com"/>
 
               {/* Phone & Contact Name */}
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Phone Number" icon={Phone} value={form.phone}
                   onChange={v => setForm(f => ({...f, phone:v}))} placeholder="+234 800 000 0000"/>
                 <Field label="Contact Person" icon={User} value={form.contactName}

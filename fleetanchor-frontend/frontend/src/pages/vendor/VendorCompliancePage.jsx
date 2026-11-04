@@ -392,7 +392,7 @@ export default function VendorCompliancePage() {
                   {DOC_TYPES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Document Number</label>
                   <input className="input w-full" placeholder="e.g. RW-2024-00123" value={addForm.docNumber}
@@ -445,7 +445,7 @@ export default function VendorCompliancePage() {
                   {DOC_TYPES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Document Number</label>
                   <input className="input w-full" value={editForm.docNumber}

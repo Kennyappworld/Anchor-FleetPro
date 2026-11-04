@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, Wrench, Car, Building2, Receipt, BarChart2, Scan, CreditCard, Shield, Settings, Bell, LogOut, ChevronDown, Hammer, Menu, X } from 'lucide-react';
 import { PoweredBy } from '../../pages/auth/ForgotPasswordPage';
+import useMobileTables from '../../hooks/useMobileTables';
 import { useAuthStore } from '../../context/authStore';
 import toast from 'react-hot-toast';
 
@@ -34,6 +35,8 @@ export default function AdminLayout() {
   const [open, setOpen] = useState(false);
   const [tenantOpen, setTenantOpen] = useState(false);
   const drawerRef = useRef(null);
+  const mainRef = useRef(null);
+  useMobileTables(mainRef);
 
   // Close drawer on route change
   useEffect(() => { setOpen(false); }, [location.pathname]);
@@ -121,7 +124,7 @@ export default function AdminLayout() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex app-shell overflow-hidden">
 
       {/* ── Desktop sidebar (hidden on mobile) ── */}
       <aside className="hidden lg:flex w-52 bg-[var(--navy-2)] border-r border-white/[0.08] flex-col flex-shrink-0">
@@ -166,7 +169,7 @@ export default function AdminLayout() {
           </button>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
+        <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-safe">
           <Outlet />
         </main>
       </div>

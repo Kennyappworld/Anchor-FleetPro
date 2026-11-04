@@ -302,7 +302,7 @@ export default function VendorVehiclesPage() {
               <h3 className="text-sm font-semibold text-[var(--text)]">Add Vehicle</h3>
               <button onClick={() => setShowAdd(false)} className="text-[var(--text3)] hover:text-[var(--text)]"><X className="w-4 h-4" /></button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {[
                 ['vin', 'VIN *', 'WNXNF4327A6...'],
                 ['plateNumber', 'Plate Number *', 'LND-421-XY'],
@@ -453,7 +453,7 @@ export default function VendorVehiclesPage() {
               {/* Last service */}
               <div>
                 <p className="text-[11px] font-semibold text-[var(--text)] mb-2 uppercase tracking-wide">Last Service</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-[10px] text-[var(--text3)] mb-1 block">Date</label>
                     <input type="date" value={serviceForm.lastServiceDate}
@@ -480,7 +480,7 @@ export default function VendorVehiclesPage() {
               {/* Service intervals */}
               <div>
                 <p className="text-[11px] font-semibold text-[var(--text)] mb-2 uppercase tracking-wide">Service Intervals (alert when either is reached)</p>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-[10px] text-[var(--text3)] mb-1 block">Every N days</label>
                     <input type="number" placeholder="e.g. 90" value={serviceForm.serviceIntervalDays}

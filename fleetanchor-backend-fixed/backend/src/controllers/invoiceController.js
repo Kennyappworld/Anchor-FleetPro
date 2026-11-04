@@ -18,7 +18,7 @@ exports.list = async (req, res, next) => {
     const where = { ...tenantFilter(req), ...paymentFilter };
     const [invoices, total] = await Promise.all([
       prisma.invoice.findMany({
-        where, skip: (page - 1) * limit, take: +limit,
+        where, skip: (Math.max(parseInt(page) || 1, 1) - 1) * Math.min(Math.max(parseInt(limit) || 50, 1), 100), take: Math.min(Math.max(parseInt(limit) || 50, 1), 100),
         include: {
           job: {
             include: { vehicle: { select: { vin: true, plateNumber: true, make: true, model: true, vendor: { select: { companyName: true } } } }, createdBy: { select: { fullName: true } } },

@@ -35,7 +35,7 @@ exports.list = async (req, res, next) => {
     const where = { ...tenantFilter(req), ...(role ? { role } : {}), active: true };
     const [users, total] = await Promise.all([
       prisma.user.findMany({
-        where, skip: (page - 1) * limit, take: +limit,
+        where, skip: (Math.max(parseInt(page) || 1, 1) - 1) * Math.min(Math.max(parseInt(limit) || 50, 1), 100), take: Math.min(Math.max(parseInt(limit) || 50, 1), 100),
         select: { id: true, fullName: true, email: true, role: true, active: true, createdAt: true, vendor: { select: { companyName: true } } },
         orderBy: { createdAt: 'desc' },
       }),
