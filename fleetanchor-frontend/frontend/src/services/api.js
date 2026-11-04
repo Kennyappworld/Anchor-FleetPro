@@ -78,8 +78,9 @@ export const jobService = {
   getOne: (id) => api.get(`/jobs/${id}`),
   create: (data) => api.post("/jobs", data),
   updateStatus: (id, data) => api.patch(`/jobs/${id}/status`, data),
-  approveEstimate: (id) => api.patch(`/jobs/${id}/status`, { status: 'ESTIMATE_APPROVED' }),
-  queryEstimate: (id, note) => api.patch(`/jobs/${id}/status`, { status: 'ESTIMATE_QUERIED', note }),
+  // Fleet managers answer an estimate here (the status route is workshop-only, so these always failed with 403).
+  approveEstimate: (id) => api.post(`/jobs/${id}/estimate-response`, { action: 'approve' }),
+  queryEstimate: (id, note) => api.post(`/jobs/${id}/estimate-response`, { action: 'query', queryNote: note }),
 };
 
 export const vehicleService = {

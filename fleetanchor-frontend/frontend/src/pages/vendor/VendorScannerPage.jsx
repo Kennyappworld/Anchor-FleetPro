@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Scan, Search, Plus } from 'lucide-react';
 import { useAuthStore } from '../../context/authStore';
+import { vehicleService } from '../../services/api';
 import toast from 'react-hot-toast';
 
-const MOCK_RESULT = {
-  vin:'WNXNF4327A6', plate:'LND-421-XY', make:'Mercedes', model:'Actros', year:2021,
-  status:'IN_REPAIR', lastService:'Jan 2026 — Brake Reline', totalJobs:8, cost:3247000,
-};
+// Previously always showed the same made-up truck; now looks up the real vehicle.
+const jobCost = (j) => Number(j.invoices?.[0]?.totalAmount ?? j.estimates?.find((e) => e.status === 'APPROVED')?.totalCost ?? 0);
+const nice = (c) => String(c || '').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (x) => x.toUpperCase());
 
 export default function VendorScannerPage() {
   const { user } = useAuthStore();
@@ -14,13 +15,30 @@ export default function VendorScannerPage() {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const search = async () => {
     if (!query.trim()) { toast.error('Enter VIN or plate number'); return; }
     setLoading(true);
-    await new Promise(r=>setTimeout(r,600));
-    setResult(MOCK_RESULT);
-    setLoading(false);
+    try {
+      const q = query.trim().toUpperCase();
+      const found = (await vehicleService.search(q)).data.data || [];
+      const v = found.find((x) => x.vin?.toUpperCase() === q || x.plateNumber?.toUpperCase() === q) || found[0];
+      if (!v) { setResult(null); toast.error('No vehicle in your fleet with that VIN or plate'); return; }
+      const jobs = (await vehicleService.history(v.id, isFieldAgent)).data.data?.jobs || [];
+      const yearStart = new Date(new Date().getFullYear(), 0, 1);
+      const last = jobs.find((j) => ['REPAIR_COMPLETE', 'AWAITING_PAYMENT', 'CLOSED'].includes(j.status));
+      setResult({
+        id: v.id, vin: v.vin, plate: v.plateNumber, make: v.make, model: v.model, year: v.year, status: v.status || 'ACTIVE',
+        lastService: last ? `${new Date(last.completedAt || last.submittedAt).toLocaleDateString('en-NG', { month: 'short', year: 'numeric' })} — ${nice(last.category)}` : 'No completed service yet',
+        totalJobs: jobs.length,
+        cost: jobs.filter((j) => new Date(j.submittedAt) >= yearStart).reduce((t, j) => t + jobCost(j), 0),
+      });
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Search failed — please try again');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -52,13 +70,13 @@ export default function VendorScannerPage() {
                   <div className="text-[10px] text-[var(--text3)]">{result.year} {result.make} {result.model}</div>
                 </div>
               </div>
-              <span className="pill pill-repair">{result.status.replace(/_/g,' ')}</span>
+              <span className={`pill ${result.status === 'IN_REPAIR' ? 'pill-repair' : 'pill-active'}`}>{result.status.replace(/_/g,' ')}</span>
             </div>
             <div className="px-4 py-3 space-y-2">
               {[
                 ['Last Service', result.lastService],
                 ['Total Jobs', `${result.totalJobs} maintenance events`],
-                ['Cost (YTD)', isFieldAgent ? '— Hidden in field mode' : `₦${result.cost.toLocaleString()}`],
+                ['Cost (YTD)', isFieldAgent ? '— Hidden in field mode' : `₦${result.cost.toLocaleString('en-NG')}`],
               ].map(([k,v])=>(
                 <div key={k} className="flex justify-between py-1.5 border-b border-white/[0.06] last:border-0">
                   <span className="text-[10px] text-[var(--text3)]">{k}</span>
@@ -66,8 +84,8 @@ export default function VendorScannerPage() {
                 </div>
               ))}
               <div className="flex gap-2 pt-2">
-                <button className="flex-1 btn-primary justify-center"><Plus className="w-3.5 h-3.5"/>Submit Complaint</button>
-                <button className="flex-1 btn-ghost justify-center">View Full History</button>
+                <button onClick={() => navigate(`/vendor/jobs?new=${result.id}`)} className="flex-1 btn-primary justify-center"><Plus className="w-3.5 h-3.5"/>Submit Complaint</button>
+                <button onClick={() => navigate('/vendor/history')} className="flex-1 btn-ghost justify-center">View Full History</button>
               </div>
             </div>
           </div>

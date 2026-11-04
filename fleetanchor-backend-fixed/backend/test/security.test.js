@@ -148,6 +148,24 @@ const check = (name, ok, detail) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${nam
   r = await req('GET', '/api/auth/approve-reset/abc?action=approve');
   check('reset approval no longer happens on a GET', r.status === 404, r.status);
 
+  // Workshop must not approve its own estimate; a note must not re-trigger status emails.
+  const JOB = '7e0a6833-12ae-4e56-a598-46356e8c9d16';
+  handlers['jobRequest.findFirst'] = () => ({ id: JOB, status: 'ESTIMATE_SENT', vehicle: { vendor: { users: [] } } });
+  calls.length = 0;
+  r = await req('PATCH', `/api/jobs/${JOB}/status`, { token: tok(users.oem), body: { status: 'ESTIMATE_APPROVED' } });
+  check('workshop cannot approve its own estimate', r.status === 403 && !calls.some((c) => c.model === 'jobRequest' && c.op === 'update'), `${r.status} ${r.text}`);
+  calls.length = 0;
+  r = await req('PATCH', `/api/jobs/${JOB}/status`, { token: tok(users.oem), body: { status: 'ESTIMATE_SENT', note: 'Called the fleet' } });
+  const upd = calls.find((c) => c.model === 'jobRequest' && c.op === 'update');
+  check('adding a note keeps the status timestamps', r.status === 200 && upd && !('estimateSentAt' in upd.args.data), `${r.status} ${JSON.stringify(upd && upd.args.data)}`);
+  r = await req('PATCH', `/api/jobs/${JOB}/status`, { token: tok(users.oem), body: { status: 'REPAIR_STARTED', note: 'x'.repeat(1001) } });
+  check('over-long job notes are rejected', r.status === 422 || r.status === 400, r.status);
+  delete handlers['jobRequest.findFirst'];
+
+  r = await req('GET', '/api/users?limit=100000', { token: tok(users.fm) });
+  const uq = calls.filter((c) => c.model === 'user' && c.op === 'findMany').pop();
+  check('list page size is capped', !uq || uq.args.take <= 100, JSON.stringify(uq && uq.args.take));
+
   r = await req('POST', '/api/auth/me', { token: tok(users.fm) });
   check('/auth/me works', r.status === 200, `${r.status} ${r.text}`);
 

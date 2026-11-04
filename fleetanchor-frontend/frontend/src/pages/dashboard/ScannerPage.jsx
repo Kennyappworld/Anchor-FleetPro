@@ -1,26 +1,14 @@
 import React, { useState } from 'react';
 import { Scan, Download, Eye, EyeOff, Search, Printer } from 'lucide-react';
-import { jobService } from '../../services/api';
+import { jobService, vehicleService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
-const MOCK_VEHICLE = {
-  vin: 'WNXNF4327A6', plate: 'LND-421-XY', make: 'Mercedes', model: 'Actros',
-  year: 2021, engine: 'OM471LA-89234', vendor: 'Coca-Cola Nigeria', status: 'IN_REPAIR',
-  totalJobs: 8, totalSpend: 3247000,
-};
-const MOCK_HISTORY = [
-  { date: 'May 2026', type: 'Engine Overhaul', tech: 'E. Nwosu', status: 'REPAIR_STARTED', cost: 485000 },
-  { date: 'Jan 2026', type: 'Brake Reline', tech: 'K. Adeyemi', status: 'REPAIR_COMPLETE', cost: 142000 },
-  { date: 'Oct 2025', type: 'Full Service', tech: 'E. Nwosu', status: 'REPAIR_COMPLETE', cost: 88500 },
-  { date: 'Jul 2025', type: 'Transmission Flush', tech: 'T. Eze', status: 'REPAIR_COMPLETE', cost: 255000 },
-  { date: 'Mar 2025', type: 'Tyre Replacement', tech: 'K. Adeyemi', status: 'REPAIR_COMPLETE', cost: 380000 },
-  { date: 'Nov 2024', type: 'Electrical Fault', tech: 'T. Eze', status: 'REPAIR_COMPLETE', cost: 97500 },
-];
-
-const formatNaira = (n) => `₦${n.toLocaleString()}`;
+const formatNaira = (n) => `₦${Number(n || 0).toLocaleString('en-NG')}`;
+const CATEGORY = (c) => String(c || 'Maintenance').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (x) => x.toUpperCase());
+const jobCost = (j) => Number(j.invoices?.[0]?.totalAmount ?? j.estimates?.find((e) => e.status === 'APPROVED')?.totalCost ?? j.estimates?.[0]?.totalCost ?? 0);
 
 export default function ScannerPage() {
   const { user } = useAuthStore();
@@ -36,10 +24,23 @@ export default function ScannerPage() {
     if (!query.trim()) { toast.error('Enter VIN or plate number'); return; }
     setLoading(true);
     try {
-      // In production: const res = await jobService.vehicleHistory({ vin: query });
-      // Mock for demo:
-      setVehicle(MOCK_VEHICLE);
-      setHistory(MOCK_HISTORY);
+      // Look the vehicle up by VIN or plate (exact match first), then load its real history.
+      const q = query.trim().toUpperCase();
+      const found = (await vehicleService.search(q)).data.data || [];
+      const v = found.find((x) => x.vin?.toUpperCase() === q || x.plateNumber?.toUpperCase() === q) || found[0];
+      if (!v) { setVehicle(null); setHistory([]); toast.error('No vehicle with that VIN or plate'); return; }
+      const res = (await vehicleService.history(v.id, isFieldAgent)).data.data;
+      const jobs = res.jobs || [];
+      const hist = jobs.map((j) => ({
+        date: new Date(j.submittedAt).toLocaleDateString('en-NG', { month: 'short', year: 'numeric' }),
+        type: CATEGORY(j.category), tech: j.createdBy?.fullName || '—', status: j.status, cost: jobCost(j),
+      }));
+      setVehicle({
+        vin: v.vin, plate: v.plateNumber, make: v.make, model: v.model, year: v.year, engine: v.engineNumber || '—',
+        vendor: v.vendor?.companyName || '—', status: v.status || 'ACTIVE', totalJobs: jobs.length,
+        totalSpend: hist.reduce((t, h) => t + h.cost, 0),
+      });
+      setHistory(hist);
       toast.success('Vehicle found');
     } catch (err) {
       toast.error(err.response?.data?.error || 'Vehicle not found');
@@ -63,7 +64,7 @@ export default function ScannerPage() {
       : [h.date, h.type, h.tech, h.status.replace(/_/g, ' ')]
     );
 
-    doc.autoTable({ startY: 35, head: [cols], body: rows, theme: 'striped', headStyles: { fillColor: [10, 22, 40] } });
+    autoTable(doc, { startY: 35, head: [cols], body: rows, theme: 'striped', headStyles: { fillColor: [10, 22, 40] } });
 
     if (showCost) {
       const total = history.reduce((s, h) => s + h.cost, 0);
@@ -130,9 +131,9 @@ export default function ScannerPage() {
         </div>
 
         {vehicle && (
-          <div className="grid grid-cols-5 gap-4 animate-fade-in">
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 animate-fade-in">
             {/* Vehicle info card */}
-            <div className="col-span-2">
+            <div className="lg:col-span-2">
               <div className="card overflow-hidden">
                 <div className="bg-navy-3 px-4 py-3 flex items-center gap-3">
                   <div className="w-9 h-9 bg-gold/20 rounded-xl flex items-center justify-center text-xl">🚛</div>
@@ -161,7 +162,7 @@ export default function ScannerPage() {
             </div>
 
             {/* History table */}
-            <div className="col-span-3">
+            <div className="lg:col-span-3 min-w-0">
               <div className="flex items-center justify-between mb-2">
                 <span className="section-title">Maintenance History</span>
                 <span className="text-[10px] text-[var(--text3)]">{history.length} records</span>

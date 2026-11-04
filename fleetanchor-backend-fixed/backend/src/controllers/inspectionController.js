@@ -156,8 +156,10 @@ exports.captureOdometer = async (req, res) => {
     const driverId = req.user.userId;
 
     if (!sessionToken || !odometer) return res.status(400).json({ success: false, error: 'sessionToken and odometer required' });
+    const km = Number(odometer);
+    if (!Number.isInteger(km) || km < 0 || km > 5000000) return res.status(400).json({ success: false, error: 'Enter the odometer reading in whole kilometres' });
 
-    const session = await prisma.inspectionSession.findUnique({ where: { sessionToken } });
+    const session = await prisma.inspectionSession.findUnique({ where: { sessionToken: String(sessionToken) } });
     if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
     if (session.driverId !== driverId) return res.status(403).json({ success: false, error: 'Session belongs to different driver' });
     if (session.status !== 'OPEN') return res.status(400).json({ success: false, error: 'Session expired or completed. Scan vehicle again.' });

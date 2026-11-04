@@ -21,7 +21,7 @@ export default function RepairsPage() {
       </div>
       <div className="p-5">
         <h2 className="section-title mb-3">Active Bays</h2>
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
           {BAYS.map(b=>(
             <div key={b.bay} className="panel border-l-2 border-l-gold cursor-pointer hover:border-white/20 transition-colors" onClick={()=>navigate(`/admin/jobs/${b.job}`)}>
               <div className="flex items-center justify-between mb-3">

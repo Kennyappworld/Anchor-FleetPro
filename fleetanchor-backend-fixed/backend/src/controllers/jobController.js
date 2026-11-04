@@ -56,9 +56,8 @@ exports.create = async (req, res) => {
 exports.list = async (req, res) => {
   try {
     const { status, vehicleId, vendorId, page = 1, limit = 20, search } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
     const take = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
+    const skip = (Math.max(parseInt(page) || 1, 1) - 1) * take;
     const where = { ...jobWhere(req.user) };
 
     if (status) where.status = String(status);
@@ -129,6 +128,12 @@ exports.updateStatus = async (req, res) => {
     if (!internal && !WORKSHOP_ROLES.includes(req.user.role) && status !== 'CLOSED') {
       return res.status(403).json({ success: false, error: 'Only the workshop can change this job status' });
     }
+    // Estimate approval belongs to the fleet (POST /:id/estimate-response); the
+    // workshop must not be able to approve its own estimate.
+    if (!internal && ['ESTIMATE_APPROVED', 'ESTIMATE_QUERIED'].includes(status) && req.user.role !== 'SUPER_ADMIN') {
+      return res.status(403).json({ success: false, error: 'The fleet manager approves or queries the estimate' });
+    }
+    const changed = status !== job.status;
     if (technicianId) {
       const tech = await prisma.user.findFirst({ where: { id: String(technicianId), role: 'WORKSHOP_STAFF', ...(isSuper(req.user) ? {} : { oemId: req.user.oemId || '00000000-0000-0000-0000-000000000000' }) } });
       if (!tech) return res.status(400).json({ success: false, error: 'Technician not found' });
@@ -136,6 +141,7 @@ exports.updateStatus = async (req, res) => {
 
     const updateData = { status };
     const now = new Date();
+    if (changed) {
 
     // Set timestamps per status transition
     if (status === 'DIAGNOSED') updateData.diagnosedAt = now;
@@ -144,24 +150,25 @@ exports.updateStatus = async (req, res) => {
     if (status === 'REPAIR_STARTED') updateData.repairStartAt = now;
     if (status === 'REPAIR_COMPLETE') updateData.completedAt = now;
     if (status === 'CLOSED') updateData.closedAt = now;
+    }
     if (bayNumber) updateData.bayNumber = bayNumber;
     if (technicianId) updateData.technicianId = technicianId;
 
     const updated = await prisma.jobRequest.update({ where: { id }, data: updateData });
 
     await prisma.jobTimeline.create({
-      data: { jobId: id, status, actorId: req.user.userId, actorName: req.user.email, note },
+      data: { jobId: id, status, actorId: req.user.userId, actorName: req.user.email, note: note ? String(note).slice(0, 1000) : null },
     });
 
-    // Send notifications based on status
-    if (status === 'ESTIMATE_SENT') {
+    // Send notifications only when the status actually changes (adding a note must not re-send emails)
+    if (changed && status === 'ESTIMATE_SENT') {
       const vendorEmails = job.vehicle.vendor.users
         .filter(u => ['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR'].includes(u.role))
         .map(u => u.email);
       emailService.sendEstimateReady({ job, vendorEmails }).catch(() => {});
     }
 
-    if (status === 'REPAIR_COMPLETE') {
+    if (changed && status === 'REPAIR_COMPLETE') {
       const vendorEmails = job.vehicle.vendor.users.filter(u => u.role === 'FLEET_MANAGER').map(u => u.email);
       emailService.sendRepairComplete({ job, vendorEmails }).catch(() => {});
     }

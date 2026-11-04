@@ -54,7 +54,7 @@ router.get('/activity', async (req, res, next) => {
   try {
     const { limit = 100, hideCost = false } = req.query;
     const logs = await prisma.auditLog.findMany({
-      take: +limit,
+      take: Math.min(Math.max(parseInt(limit) || 100, 1), 500),
       include: { user: { select: { fullName: true, email: true, role: true } } },
       orderBy: { createdAt: 'desc' },
     });

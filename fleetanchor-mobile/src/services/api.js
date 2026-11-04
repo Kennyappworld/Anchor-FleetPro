@@ -1,7 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const BASE_URL = 'https://anchor-fleetpro-production.up.railway.app/api';
+// The live API runs on Render (the old Railway address no longer deploys).
+const BASE_URL = 'https://anchor-fleetpro.onrender.com/api';
 
 const api = axios.create({
   baseURL: BASE_URL,

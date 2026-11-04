@@ -18,7 +18,7 @@ exports.list = async (req, res, next) => {
     const where = { ...tenantFilter(req), deletedAt: null, ...(status ? { status } : {}) };
     const [vendors, total] = await Promise.all([
       prisma.vendor.findMany({
-        where, skip: (page - 1) * limit, take: +limit,
+        where, skip: (Math.max(parseInt(page) || 1, 1) - 1) * Math.min(Math.max(parseInt(limit) || 50, 1), 100), take: Math.min(Math.max(parseInt(limit) || 50, 1), 100),
         include: {
           oem: { select: { name: true } },
           subscriptions: { where: { status: { in: ['ACTIVE','TRIAL'] } }, orderBy: { createdAt: 'desc' }, take: 1 },

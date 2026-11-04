@@ -52,7 +52,7 @@ export default function InvoicesPage() {
       </div>
 
       <div className="p-5 space-y-4">
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { label: 'Total Revenue', value: fmtK(totalPaid + totalOutstanding), icon: DollarSign, color: 'text-[var(--gold)]', bg: 'bg-[var(--gold)]/10' },
             { label: 'Paid', value: fmtK(totalPaid), icon: CheckCircle, color: 'text-green-400', bg: 'bg-green-500/10' },

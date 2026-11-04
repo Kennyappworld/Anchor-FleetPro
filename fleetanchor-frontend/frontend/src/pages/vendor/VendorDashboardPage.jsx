@@ -222,7 +222,7 @@ export default function VendorDashboardPage() {
       </div>
 
       {/* ── Compliance Health Row ── */}
-      <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { label: 'Docs Expiring', value: compliance.expiringDocs || 0, icon: ShieldCheck, color: 'text-yellow-400', bg: 'bg-yellow-500/10', path: '/vendor/compliance' },
           { label: 'Docs Expired', value: compliance.expiredDocs || 0, icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', path: '/vendor/compliance' },
@@ -237,7 +237,7 @@ export default function VendorDashboardPage() {
             </div>
             <div className="min-w-0">
               <div className={`text-lg font-800 ${value > 0 ? color : 'text-white'}`}>{value}</div>
-              <div className="text-[10px] text-slate-400 leading-tight truncate">{label}</div>
+              <div className="text-[10px] text-slate-400 leading-tight">{label}</div>
             </div>
             <ChevronRight size={12} className="text-slate-600 group-hover:text-slate-400 ml-auto flex-shrink-0 transition-colors" />
           </div>

@@ -1,3 +1,4 @@
+import { useSearchParams } from 'react-router-dom';
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, CheckCircle, MessageSquare, X, ChevronDown, RefreshCw, Search, Wrench, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -69,6 +70,16 @@ export default function VendorJobsPage() {
   // New job modal
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ vehicleId: '', category: 'ENGINE', description: '', priority: 'NORMAL' });
+  // Opened from the scanner: /vendor/jobs?new=<vehicleId> starts a complaint for that vehicle.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const vid = params.get('new');
+    if (!vid) return;
+    setForm(f => ({ ...f, vehicleId: vid }));
+    setShowNew(true);
+    params.delete('new');
+    setParams(params, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [submitting, setSubmitting] = useState(false);
 
   // Query modal
