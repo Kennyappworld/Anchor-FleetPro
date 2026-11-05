@@ -1,16 +1,31 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Shield, AlertTriangle, CheckCircle, Ban, Plus, ToggleLeft, ToggleRight, Calendar, X, ChevronDown } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { vendorService, subscriptionService } from '../../services/api';
+import { useAuthStore } from '../../context/authStore';
 
-const INIT = [
-  { id:'1', vendor:'Coca-Cola Nigeria',  plan:'ENTERPRISE',      status:'ACTIVE',    starts:'2026-05-01', expires:'2026-06-01', amount:250000, autoRenew:true,  demo:false, extended:false },
-  { id:'2', vendor:'Dangote Flour',      plan:'GROWTH',          status:'EXPIRING',  starts:'2026-05-01', expires:'2026-05-30', amount:85000,  autoRenew:true,  demo:false, extended:false },
-  { id:'3', vendor:'NNPC Logistics',     plan:'ENTERPRISE',      status:'ACTIVE',    starts:'2026-05-01', expires:'2026-06-01', amount:250000, autoRenew:true,  demo:false, extended:false },
-  { id:'4', vendor:'UAC Nigeria',        plan:'GROWTH',          status:'EXPIRED',   starts:'2026-04-01', expires:'2026-05-01', amount:85000,  autoRenew:false, demo:false, extended:false },
-  { id:'5', vendor:'Lafarge Cement',     plan:'GROWTH',          status:'ACTIVE',    starts:'2026-05-10', expires:'2026-06-10', amount:85000,  autoRenew:true,  demo:false, extended:false },
-  { id:'6', vendor:'Julius Berger',      plan:'OEM_WHITE_LABEL', status:'ACTIVE',    starts:'2026-01-01', expires:'2026-12-31', amount:500000, autoRenew:true,  demo:false, extended:false },
-  { id:'7', vendor:'PMC FAW Motors',     plan:'GROWTH',          status:'TRIAL',     starts:'2026-05-28', expires:'2026-06-28', amount:0,      autoRenew:false, demo:false, extended:false },
-];
+// Real subscriptions for every fleet (this page used to show a fixed made-up list).
+const DAY = 24 * 60 * 60 * 1000;
+// Must match PLAN_AMOUNTS in the API's subscriptionController (what Paystack actually charges).
+const PRICES = { GROWTH: 85000, ENTERPRISE: 250000 };
+const ymd = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '—');
+
+function rowFor(v, prices) {
+  const sub = v.subscriptions?.[0];
+  const now = Date.now();
+  let status, plan, expires;
+  if (sub && new Date(sub.expiryDate) > now) {
+    plan = sub.plan; expires = sub.expiryDate;
+    status = new Date(sub.expiryDate) - now < 7 * DAY ? 'EXPIRING' : 'ACTIVE';
+  } else if (v.trialEndsAt && new Date(v.trialEndsAt) > now) {
+    plan = v.trialPlan || 'GROWTH'; expires = v.trialEndsAt; status = 'TRIAL';
+  } else {
+    plan = sub?.plan || v.trialPlan || 'GROWTH'; expires = sub?.expiryDate || v.trialEndsAt; status = 'EXPIRED';
+  }
+  if (v.status === 'SUSPENDED') status = 'SUSPENDED';
+  const amount = status === 'TRIAL' ? 0 : (prices[plan] || 0);
+  return { id: v.id, vendor: v.companyName, plan, status: v.demoMode ? 'DEMO' : status, baseStatus: status, expires: ymd(expires), amount, demo: !!v.demoMode, extended: false };
+}
 
 const STATUS_META = {
   ACTIVE:    { cls:'pill-active',    icon:CheckCircle,  label:'Active' },
@@ -26,46 +41,58 @@ const PLAN_COLOR = { ENTERPRISE:'text-teal', GROWTH:'text-gold', OEM_WHITE_LABEL
 const PLANS = [
   { value:'GROWTH',          label:'Growth — ₦85,000/mo' },
   { value:'ENTERPRISE',      label:'Enterprise — ₦250,000/mo' },
-  { value:'OEM_WHITE_LABEL', label:'OEM White-Label' },
 ];
 
 const selectStyle = { backgroundColor: '#0d1f38' };
 
 export default function SubscriptionsPage() {
-  const [subs, setSubs]           = useState(INIT);
-  const [extModal, setExtModal]   = useState(null);   // { sub, days, plan }
+  const isSuper = useAuthStore((st) => st.user?.role === 'SUPER_ADMIN');
+  const [subs, setSubs]           = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [extModal, setExtModal]   = useState(null);
   const [extDays, setExtDays]     = useState('30');
   const [extPlan, setExtPlan]     = useState('');
+  const [saving, setSaving]       = useState(false);
 
-  const totalMRR = subs.filter(s => s.status==='ACTIVE' || s.status==='EXPIRING')
-                       .reduce((a, s) => a + s.amount, 0);
+  const load = useCallback(async () => {
+    try {
+      const vRes = await vendorService.list({ limit: 100 });
+      setSubs((vRes.data.data || []).map((v) => rowFor(v, PRICES)));
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not load subscriptions');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
 
-  /* Toggle demo mode */
-  const toggleDemo = (id) => {
-    setSubs(prev => prev.map(s => {
-      if (s.id !== id) return s;
-      const isDemo = !s.demo;
-      toast.success(isDemo
-        ? `${s.vendor} set to Demo Mode. Full access granted temporarily.`
-        : `${s.vendor} demo ended. Reverted to ${s.plan} plan.`);
-      return { ...s, demo: isDemo, status: isDemo ? 'DEMO' : (s.extended ? 'ACTIVE' : s.status === 'DEMO' ? 'ACTIVE' : s.status) };
-    }));
+  const totalMRR = subs.filter(s => s.baseStatus==='ACTIVE' || s.baseStatus==='EXPIRING').reduce((a, s) => a + s.amount, 0);
+
+  /* Demo mode: full access without payment (super admin only) */
+  const toggleDemo = async (id) => {
+    const s = subs.find((x) => x.id === id);
+    if (!s) return;
+    if (!isSuper) { toast.error('Only the super admin can switch demo mode'); return; }
+    try {
+      await subscriptionService.toggleDemo(id, !s.demo);
+      toast.success(!s.demo ? `${s.vendor} set to Demo Mode.` : `${s.vendor} demo ended.`);
+      load();
+    } catch (e) { toast.error(e?.response?.data?.error || 'Could not change demo mode'); }
   };
 
-  /* Extend plan without payment */
-  const doExtend = () => {
+  /* Extend plan without payment (super admin only, logged in the audit trail) */
+  const doExtend = async () => {
     if (!extModal) return;
     const days = parseInt(extDays) || 30;
-    const plan = extPlan || extModal.plan;
-    setSubs(prev => prev.map(s => {
-      if (s.id !== extModal.id) return s;
-      const base = new Date(s.expires) > new Date() ? new Date(s.expires) : new Date();
-      base.setDate(base.getDate() + days);
-      return { ...s, plan, status: 'ACTIVE', extended: true,
-               expires: base.toISOString().slice(0, 10) };
-    }));
-    toast.success(`${extModal.vendor} extended by ${days} days${plan !== extModal.plan ? ` and upgraded to ${plan}` : ''} — no payment required.`);
-    setExtModal(null);
+    setSaving(true);
+    try {
+      const res = await subscriptionService.extend(extModal.id, days, extPlan || extModal.plan);
+      toast.success(res.data.message || 'Plan extended');
+      setExtModal(null);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not extend the plan');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -100,7 +127,7 @@ export default function SubscriptionsPage() {
         {subs.filter(s => s.status==='EXPIRING').length > 0 && (
           <div className="bg-gold/8 border border-gold/20 rounded-xl p-3 mb-4 flex items-center gap-2 text-xs text-gold">
             <AlertTriangle className="w-4 h-4 flex-shrink-0"/>
-            {subs.filter(s => s.status==='EXPIRING').length} vendor(s) expire within 7 days. Auto-warning emails sent.
+            {subs.filter(s => s.status==='EXPIRING').length} fleet(s) expire within 7 days. Reminder emails go out automatically.
           </div>
         )}
 
@@ -108,7 +135,7 @@ export default function SubscriptionsPage() {
         {subs.filter(s => s.status==='TRIAL').length > 0 && (
           <div className="bg-purple-500/8 border border-purple-500/20 rounded-xl p-3 mb-4 flex items-center gap-2 text-xs text-purple-300">
             <Shield className="w-4 h-4 flex-shrink-0"/>
-            {subs.filter(s => s.status==='TRIAL').length} vendor(s) on free 1-month trial. Auto-reminder will be sent 7 days before expiry.
+            {subs.filter(s => s.status==='TRIAL').length} fleet(s) on a free trial.
           </div>
         )}
 
@@ -122,6 +149,8 @@ export default function SubscriptionsPage() {
               </tr>
             </thead>
             <tbody>
+              {loading && <tr><td colSpan={7} className="text-center text-[var(--text3)] py-6">Loading…</td></tr>}
+              {!loading && subs.length === 0 && <tr><td colSpan={7} className="text-center text-[var(--text3)] py-6">No fleets yet. Add one under Vendors / OEM.</td></tr>}
               {subs.map(s => {
                 const m = STATUS_META[s.status] || STATUS_META['ACTIVE'];
                 const Icon = m.icon;
@@ -130,11 +159,11 @@ export default function SubscriptionsPage() {
                     <td>
                       <div className="text-[11px] font-semibold text-[var(--text)]">{s.vendor}</div>
                       {s.extended && <div className="text-[9px] text-teal mt-0.5">⚡ Admin extended</div>}
-                      {s.status === 'TRIAL' && <div className="text-[9px] text-purple-400 mt-0.5">🆓 1-month free trial</div>}
+                      {s.baseStatus === 'TRIAL' && <div className="text-[9px] text-purple-400 mt-0.5">Free trial</div>}
                     </td>
                     <td>
                       <span className={`text-[11px] font-semibold ${PLAN_COLOR[s.plan]}`}>
-                        {s.plan.replace(/_/g,' ')}
+                        {String(s.plan).replace(/_/g,' ')}
                       </span>
                     </td>
                     <td>
@@ -148,7 +177,7 @@ export default function SubscriptionsPage() {
                     </td>
                     {/* Demo toggle */}
                     <td>
-                      <button onClick={() => toggleDemo(s.id)}
+                      <button onClick={() => toggleDemo(s.id)} disabled={!isSuper} title={isSuper ? '' : 'Super admin only'}
                         className={`flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border transition-colors
                           ${s.demo
                             ? 'border-blue-400/40 bg-blue-400/10 text-blue-400'
@@ -160,8 +189,8 @@ export default function SubscriptionsPage() {
                     {/* Extend button */}
                     <td>
                       <button
-                        onClick={() => { setExtModal(s); setExtDays('30'); setExtPlan(s.plan); }}
-                        className="btn-ghost text-[10px] py-1">
+                        onClick={() => { setExtModal(s); setExtDays('30'); setExtPlan(s.plan); }} disabled={!isSuper} title={isSuper ? '' : 'Super admin only'}
+                        className="btn-ghost text-[10px] py-1 disabled:opacity-40">
                         <Calendar className="w-3 h-3"/> Extend
                       </button>
                     </td>
@@ -199,7 +228,7 @@ export default function SubscriptionsPage() {
                   {['7','30','60','90'].map(d => (
                     <button key={d} onClick={() => setExtDays(d)}
                       className={`flex-1 py-1.5 rounded-lg text-[11px] border transition-colors
-                        ${extDays===d ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                        ${extDays===d ? 'border-teal bg-teal/10 text-teal'
                                       : 'border-white/[0.10] text-[var(--text3)] hover:border-white/30'}`}>
                       {d}d
                     </button>
@@ -207,7 +236,7 @@ export default function SubscriptionsPage() {
                 </div>
                 <input type="number" value={extDays} onChange={e => setExtDays(e.target.value)} min="1" max="365"
                   placeholder="Custom days"
-                  className="w-full rounded-lg border border-white/[0.12] px-3 py-2 text-[12px] text-white outline-none focus:border-[var(--accent)]"
+                  className="w-full rounded-lg border border-white/[0.12] px-3 py-2 text-[12px] text-white outline-none focus:border-teal"
                   style={{ backgroundColor: '#0d1f38' }}/>
               </div>
 
@@ -218,7 +247,7 @@ export default function SubscriptionsPage() {
                 </label>
                 <div className="relative">
                   <select value={extPlan} onChange={e => setExtPlan(e.target.value)}
-                    className="w-full appearance-none rounded-lg border border-white/[0.12] px-3 py-2.5 pr-8 text-[12px] text-white outline-none focus:border-[var(--accent)] cursor-pointer"
+                    className="w-full appearance-none rounded-lg border border-white/[0.12] px-3 py-2.5 pr-8 text-[12px] text-white outline-none focus:border-teal cursor-pointer"
                     style={selectStyle}>
                     {PLANS.map(p => (
                       <option key={p.value} value={p.value} style={selectStyle}>{p.label}</option>
@@ -235,8 +264,8 @@ export default function SubscriptionsPage() {
 
               <div className="flex gap-2">
                 <button onClick={() => setExtModal(null)} className="flex-1 btn-ghost justify-center">Cancel</button>
-                <button onClick={doExtend} className="flex-1 btn-primary justify-center">
-                  <Calendar className="w-3.5 h-3.5"/> Confirm Extension
+                <button onClick={doExtend} disabled={saving} className="flex-1 btn-primary justify-center disabled:opacity-50">
+                  <Calendar className="w-3.5 h-3.5"/> {saving ? 'Saving…' : 'Confirm Extension'}
                 </button>
               </div>
             </div>

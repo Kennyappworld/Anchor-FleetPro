@@ -33,11 +33,7 @@ const PLANS = [
     features: [
       'Unlimited user accounts',
       'Everything in Growth',
-      'Advanced analytics dashboard',
-      'API access for integrations',
       'Priority support',
-      'Custom job categories',
-      'Bulk invoice export',
       'Dedicated account manager',
     ],
   },

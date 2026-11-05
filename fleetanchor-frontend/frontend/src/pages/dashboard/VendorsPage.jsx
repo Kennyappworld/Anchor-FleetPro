@@ -4,15 +4,6 @@ import toast from 'react-hot-toast';
 import { vendorService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
-const MOCK = [
-  { id:'1', name:'Coca-Cola Nigeria', email:'fleet@coca-cola.ng', phone:'+234 801 234 5678', plan:'ENTERPRISE', vehicles:187, users:8, status:'ACTIVE', joined:'Jan 2025', spend:'₦28.4M' },
-  { id:'2', name:'Dangote Flour Mills', email:'fleet@dangote.com', phone:'+234 802 345 6789', plan:'GROWTH', vehicles:43, users:2, status:'ACTIVE', joined:'Mar 2025', spend:'₦9.1M' },
-  { id:'3', name:'NNPC Logistics', email:'maint@nnpc.gov.ng', phone:'+234 803 456 7890', plan:'ENTERPRISE', vehicles:312, users:14, status:'ACTIVE', joined:'Nov 2024', spend:'₦54.7M' },
-  { id:'4', name:'UAC Nigeria', email:'fleet@uac.ng', phone:'+234 804 567 8901', plan:'GROWTH', vehicles:28, users:2, status:'SUSPENDED', joined:'Feb 2025', spend:'₦5.2M' },
-  { id:'5', name:'Lafarge Cement', email:'transport@lafarge.ng', phone:'+234 805 678 9012', plan:'GROWTH', vehicles:61, users:3, status:'ACTIVE', joined:'Apr 2025', spend:'₦12.3M' },
-  { id:'6', name:'Julius Berger', email:'fleet@juliusberger.com', phone:'+234 806 789 0123', plan:'OEM_WHITE_LABEL', vehicles:524, users:22, status:'ACTIVE', joined:'Jun 2024', spend:'₦91.2M' },
-];
-
 const PLAN_COLORS = {
   ENTERPRISE: 'bg-teal/15 text-teal',
   GROWTH: 'bg-gold/15 text-gold',

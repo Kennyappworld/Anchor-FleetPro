@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 const NAV = [
   { section: 'Fleet', items: [
     { to: '/vendor',              icon: LayoutDashboard, label: 'Dashboard',           end: true },
-    { to: '/vendor/jobs',         icon: Wrench,          label: 'My Job Requests',     badge: 3  },
+    { to: '/vendor/jobs',         icon: Wrench,          label: 'My Job Requests' },
     { to: '/vendor/scanner',      icon: Scan,            label: 'VIN Scanner' },
     { to: '/vendor/vehicles',     icon: Truck,           label: 'My Fleet' },
     { to: '/vendor/compliance',   icon: ShieldCheck,     label: 'Doc Compliance' },
