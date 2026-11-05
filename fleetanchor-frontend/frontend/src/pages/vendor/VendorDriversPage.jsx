@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle, Clock, Search, Download, RefreshCw, ShieldAlert
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+import { readRows, downloadSheet } from '../../utils/spreadsheet';
 import { driverLicenceService } from '../../services/api';
 
 const LICENCE_CATEGORIES = ['A', 'B', 'C', 'D', 'E', 'EC', 'B1', 'C1', 'D1', 'BE', 'CE'];
@@ -133,16 +133,13 @@ export default function VendorDriversPage() {
     finally { setDeleteLoading(false); }
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const wb = XLSX.read(ev.target.result, { type: 'binary' });
+    try {
       // Prefer 'Driver Licences' sheet, then first sheet
-      const sheetName = wb.SheetNames.find(n => /driver/i.test(n)) || wb.SheetNames[0];
-      const sheet = wb.Sheets[sheetName];
-      const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      const raw = await readRows(file, /driver/i);
       // Find real header row (contains 'Driver' or 'Name')
       let hIdx = raw.findIndex(r => r.some(c => /driver.?name|^name$/i.test(String(c))));
       if (hIdx === -1) hIdx = 0;
@@ -160,9 +157,9 @@ export default function VendorDriversPage() {
       setImportRows(parsed);
       setShowImport(true);
       setImportResult(null);
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = '';
+    } catch (err) {
+      toast.error(err.message || 'Could not read the file');
+    }
   };
 
   const handleBulkImport = async () => {
@@ -177,11 +174,8 @@ export default function VendorDriversPage() {
   };
 
   const downloadTemplate = () => {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]);
-    ws['!cols'] = TEMPLATE_HEADERS.map(() => ({ wch: 24 }));
-    XLSX.utils.book_append_sheet(wb, ws, 'Drivers');
-    XLSX.writeFile(wb, 'driver-licences-template.xlsx');
+    downloadSheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE], { sheet: 'Drivers', fileName: 'driver-licences-template.xlsx', width: 24 })
+      .catch(() => toast.error('Could not create the template'));
   };
 
   const LicenceForm = ({ data, setData }) => (
@@ -254,7 +248,7 @@ export default function VendorDriversPage() {
           <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-1.5 text-sm px-4 py-2">
             <Plus size={16} /> Add Driver
           </button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} />
+          <input ref={fileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={handleFileUpload} />
         </div>
       </div>
 

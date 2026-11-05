@@ -1,50 +1,85 @@
 import axios from "axios";
 
-// Set VITE_API_URL (e.g. https://api.example.com/api) in Vercel; the fallback keeps today's behaviour.
-const API_BASE = (import.meta.env.VITE_API_URL || "https://anchor-fleetpro.onrender.com/api").replace(/\/$/, "");
+// The web app always calls its own domain: vercel.json forwards /api to the API
+// server (and vite.config.js does the same in development). That keeps the
+// session cookie first-party. VITE_API_URL is honoured only in development.
+const API_BASE = ((import.meta.env.DEV && import.meta.env.VITE_API_URL) || "/api").replace(/\/$/, "");
 
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 60000,
+  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
 
-api.interceptors.request.use(
-  (config) => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("fleetanchor-auth") || "{}");
-      const token = stored?.state?.accessToken;
-      if (token) config.headers.Authorization = `Bearer ${token}`;
-    } catch {}
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+// ── Session tokens ──────────────────────────────────────────────────────────
+// The short-lived access token lives only in memory. The refresh token is an
+// httpOnly cookie the browser sends to /api/auth/refresh — page scripts can't
+// read it, so a malicious script can't steal a long-lived session.
+let accessToken = null;
+let refreshing = null;
+let legacyRefresh = null; // one-time hand-over from sessions saved before this change
+
+export const tokens = {
+  get: () => accessToken,
+  set: (t) => { accessToken = t || null; },
+  clear: () => { accessToken = null; },
+  setLegacy: (t) => { legacyRefresh = t || null; },
+};
+
+const AUTH_KEY = "fleetanchor-auth";
+const signedIn = () => {
+  try { return !!JSON.parse(localStorage.getItem(AUTH_KEY) || "{}")?.state?.isAuthenticated; } catch { return false; }
+};
+
+// One refresh at a time, shared by every request that needs it.
+export function refreshSession() {
+  if (!refreshing) {
+    const body = legacyRefresh ? { refreshToken: legacyRefresh } : {};
+    refreshing = axios
+      .post(`${API_BASE}/auth/refresh`, body, { withCredentials: true, timeout: 60000 })
+      .then((res) => {
+        legacyRefresh = null;
+        const t = res.data.accessToken || res.data.data?.accessToken;
+        if (!t) throw new Error("refresh failed");
+        accessToken = t;
+        return t;
+      })
+      .finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
+function endSession() {
+  accessToken = null;
+  try { localStorage.removeItem(AUTH_KEY); } catch {}
+  if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
+}
+
+const isAuthCall = (url = "") => /\/auth\/(login|refresh|logout|forgot-password|verify-otp|reset-password)/.test(url);
+
+api.interceptors.request.use(async (config) => {
+  // After a page reload the access token is gone; get a new one first.
+  if (!accessToken && signedIn() && !isAuthCall(config.url)) {
+    try { await refreshSession(); } catch { /* the 401 handler below decides */ }
+  }
+  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`;
+  return config;
+});
 
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const original = error.config;
-    if (error.response?.status === 401 && !original._retry) {
+    const original = error.config || {};
+    if (error.response?.status === 401 && !original._retry && !isAuthCall(original.url)) {
       original._retry = true;
       try {
-        const stored = JSON.parse(localStorage.getItem("fleetanchor-auth") || "{}");
-        const refreshToken = stored?.state?.refreshToken;
-        if (refreshToken) {
-          // RAILWAY_URL was never defined, so every refresh failed and users were
-          // signed out after 15 minutes. Use the same API address as everything else.
-          const res = await axios.post(`${API_BASE}/auth/refresh`, { refreshToken });
-          const accessToken = res.data.accessToken || res.data.data?.accessToken;
-          const newRefresh = res.data.refreshToken || res.data.data?.refreshToken || refreshToken;
-          if (!accessToken) throw new Error("refresh failed");
-          const newStored = { ...stored, state: { ...stored.state, accessToken, refreshToken: newRefresh } };
-          localStorage.setItem("fleetanchor-auth", JSON.stringify(newStored));
-          original.headers.Authorization = `Bearer ${accessToken}`;
-          return api(original);
-        }
-      } catch {}
-      localStorage.removeItem("fleetanchor-auth");
-      window.location.href = "/login";
+        const t = await refreshSession();
+        original.headers.Authorization = `Bearer ${t}`;
+        return api(original);
+      } catch {
+        endSession();
+      }
     }
     return Promise.reject(error);
   }
@@ -55,7 +90,7 @@ export default api;
 export const authService = {
   login: (data) => api.post("/auth/login", data),
   logout: () => api.post("/auth/logout"),
-  refresh: (rt) => api.post("/auth/refresh", { refreshToken: rt }),
+  refresh: () => api.post("/auth/refresh", {}),
   me: () => api.post("/auth/me"),
   // Password reset — OTP flow
   forgotPassword: (data) => api.post("/auth/forgot-password", data),
@@ -185,4 +220,12 @@ export const driverLicenceService = {
   bulkImport: (rows) => api.post('/driver-licences/bulk-import', { rows }),
   update: (id, data) => api.patch(`/driver-licences/${id}`, data),
   remove: (id) => api.delete(`/driver-licences/${id}`),
+};
+
+// Team chat (per fleet). Workshop users pass the fleet's vendorId.
+export const chatService = {
+  summary: (vendorId) => api.get("/chat/summary", { params: { vendorId } }),
+  messages: (channel, vendorId, after) => api.get(`/chat/${channel}/messages`, { params: { vendorId, after } }),
+  send: (channel, vendorId, body) => api.post(`/chat/${channel}/messages`, body, { params: { vendorId } }),
+  remove: (id, vendorId) => api.delete(`/chat/messages/${id}`, { params: { vendorId } }),
 };

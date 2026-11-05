@@ -166,6 +166,51 @@ const check = (name, ok, detail) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${nam
   const uq = calls.filter((c) => c.model === 'user' && c.op === 'findMany').pop();
   check('list page size is capped', !uq || uq.args.take <= 100, JSON.stringify(uq && uq.args.take));
 
+  // ── Team chat: each fleet's chat is private to that fleet and its own workshop ──
+  const OTHER_VENDOR = '3c4f9a51-0d55-4b2b-9f0e-6b2f1d7e8a10';
+  calls.length = 0;
+  r = await req('GET', `/api/chat/general/messages?vendorId=${OTHER_VENDOR}`, { token: tok(users.fm) });
+  const cq = calls.find((c) => c.model === 'chatMessage' && c.op === 'findMany');
+  check('fleet user only ever reads their own fleet chat', r.status === 200 && cq && cq.args.where.vendorId === users.fm.vendorId, `${r.status} ${JSON.stringify(cq && cq.args.where)}`);
+  calls.length = 0;
+  r = await req('GET', `/api/chat/general/messages?vendorId=${OTHER_VENDOR}`, { token: tok(users.oem) });
+  const vf = calls.find((c) => c.model === 'vendor' && c.op === 'findFirst');
+  check('workshop cannot open a fleet outside its own OEM', r.status === 400 && vf && vf.args.where.oemId === users.oem.oemId
+    && !calls.some((c) => c.model === 'chatMessage'), `${r.status} ${JSON.stringify(vf && vf.args.where)}`);
+  r = await req('POST', '/api/chat/billing/messages', { token: tok(users.agent), body: { text: 'hello' } });
+  check('billing channel is read-only for field agents', r.status === 403, r.status);
+  r = await req('POST', '/api/chat/general/messages', { token: tok(users.fm), body: { imageData: 'data:text/html;base64,PHNjcmlwdD4=' } });
+  check('chat refuses non-image attachments', r.status === 400, r.status);
+  r = await req('POST', '/api/chat/general/messages', { token: tok(users.fm), body: { text: 'x'.repeat(4001) } });
+  check('chat refuses over-long messages', r.status === 400, r.status);
+  handlers['chatMessage.create'] = (a) => ({ id: 'm1', createdAt: new Date(), ...a.data, user: { id: a.data.userId, fullName: 'Fleet Manager', role: 'FLEET_MANAGER' } });
+  calls.length = 0;
+  r = await req('POST', '/api/chat/general/messages', { token: tok(users.fm), body: { text: 'Bay 3 is free', userId: users.oem.id, vendorId: OTHER_VENDOR } });
+  const cc = calls.find((c) => c.model === 'chatMessage' && c.op === 'create');
+  check('messages are always saved as the sender, in their own fleet', r.status === 201 && cc && cc.args.data.userId === users.fm.id && cc.args.data.vendorId === users.fm.vendorId,
+    `${r.status} ${JSON.stringify(cc && cc.args.data)}`);
+  handlers['chatMessage.findFirst'] = () => ({ id: 'm1', userId: users.fm.id, vendorId: users.fm.vendorId });
+  r = await req('DELETE', '/api/chat/messages/2f0c6b1e-6a37-4c39-9a51-1c7d2a7e4b11', { token: tok(users.agent) });
+  check("people cannot delete someone else's message", r.status === 403, r.status);
+  delete handlers['chatMessage.findFirst'];
+
+  // ── Session cookie: the web app's refresh token is never readable by page scripts ──
+  const bcrypt = require(path.join(BACKEND, 'node_modules/bcryptjs'));
+  users.fm.passwordHash = bcrypt.hashSync('Correct-Horse-9', 4);
+  users.fm.fullName = 'Fleet Manager';
+  r = await req('POST', '/api/auth/login', { body: { email: users.fm.email, password: 'Correct-Horse-9' } });
+  const sc = String(r.headers['set-cookie'] || '');
+  check('web login puts the refresh token in an httpOnly, Secure, SameSite=Strict cookie',
+    r.status === 200 && /fa_rt=[^;]+;/.test(sc) && /HttpOnly/i.test(sc) && /Secure/i.test(sc) && /SameSite=Strict/i.test(sc), `${r.status} ${sc} ${r.text.slice(0, 120)}`);
+  check('web login response body has no refresh token', r.status === 200 && r.body.accessToken && !r.body.refreshToken, r.text.slice(0, 160));
+  const cookie = (sc.match(/fa_rt=[^;]+/) || [''])[0];
+  r = await req('POST', '/api/auth/refresh', { headers: { Cookie: cookie } });
+  check('refresh works from the cookie alone', r.status === 200 && r.body.accessToken && !r.body.refreshToken, `${r.status} ${r.text.slice(0, 120)}`);
+  r = await req('POST', '/api/auth/login', { body: { email: users.fm.email, password: 'Correct-Horse-9' }, headers: { 'X-Token-Transport': 'body' } });
+  check('driver app still receives its refresh token in the body', r.status === 200 && r.body.refreshToken, r.text.slice(0, 120));
+  r = await req('POST', '/api/auth/logout', { headers: { Cookie: cookie } });
+  check('sign-out clears the cookie even without an access token', r.status === 200 && /fa_rt=;.*Max-Age=0/i.test(String(r.headers['set-cookie'])), `${r.status} ${r.headers['set-cookie']}`);
+
   r = await req('POST', '/api/auth/me', { token: tok(users.fm) });
   check('/auth/me works', r.status === 200, `${r.status} ${r.text}`);
 

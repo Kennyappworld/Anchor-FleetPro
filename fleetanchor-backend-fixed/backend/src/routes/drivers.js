@@ -26,6 +26,7 @@ const signupLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many signup attempts. Try again later.' },
+  keyGenerator: (req) => require('../utils/clientIp')(req),
 });
 
 // This is the unauthenticated endpoint — the driver app calls this without a token

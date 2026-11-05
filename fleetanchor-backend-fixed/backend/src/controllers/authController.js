@@ -8,6 +8,8 @@ const auditService = require('../services/auditService');
 const emailService = require('../services/emailService');
 const { escHtml } = require('../utils/sanitize');
 const { userWhere, isSuper, outranks } = require('../utils/tenant');
+const { deliverTokens, readRefresh, clearRefreshCookie } = require('../utils/session');
+const clientIp = require('../utils/clientIp');
 
 const JWT_ALGS = ['HS256'];
 const MAX_OTP_TRIES = 5;
@@ -37,7 +39,7 @@ const hashToken = (token) =>
 exports.login = async (req, res) => {
   try {
     const { email, password, totpCode } = req.body;
-    const ip = req.ip;
+    const ip = clientIp(req);
     const ua = req.headers['user-agent'];
 
     const user = await prisma.user.findUnique({
@@ -102,8 +104,7 @@ exports.login = async (req, res) => {
 
     return res.json({
       success: true,
-      accessToken,
-      refreshToken,
+      ...deliverTokens(req, res, { accessToken, refreshToken }),
       user: {
         id: user.id,
         fullName: user.fullName,
@@ -123,13 +124,14 @@ exports.login = async (req, res) => {
 
 exports.refreshToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = readRefresh(req);
     if (!refreshToken) return res.status(401).json({ success: false, error: 'Refresh token required' });
 
     let decoded;
     try {
       decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, { algorithms: JWT_ALGS });
     } catch (err) {
+      clearRefreshCookie(res);
       return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
     }
 
@@ -154,8 +156,8 @@ exports.refreshToken = async (req, res) => {
     const accessToken = signAccess(tokenPayload);
     const newRefresh = signRefresh({ userId: user.id });
 
-    // `data` mirrors the tokens for the web app, which reads res.data.data.
-    return res.json({ success: true, accessToken, refreshToken: newRefresh, data: { accessToken, refreshToken: newRefresh } });
+    const tokens = deliverTokens(req, res, { accessToken, refreshToken: newRefresh });
+    return res.json({ success: true, ...tokens, data: tokens });
   } catch (err) {
     return res.status(401).json({ success: false, error: 'Invalid or expired refresh token' });
   }
@@ -176,15 +178,21 @@ exports.me = async (req, res) => {
   }
 };
 
+// Works even when the access token has expired: the point is to drop the session cookie.
 exports.logout = async (req, res) => {
-  await auditService.log({ userId: req.user.userId, action: 'LOGOUT', entityType: 'user', entityId: req.user.userId, ipAddress: req.ip, actorLabel: req.user.email });
+  clearRefreshCookie(res);
+  try {
+    const t = readRefresh(req);
+    const d = t ? jwt.verify(t, process.env.JWT_REFRESH_SECRET, { algorithms: JWT_ALGS }) : null;
+    if (d?.userId) await auditService.log({ userId: d.userId, action: 'LOGOUT', entityType: 'user', entityId: d.userId, ipAddress: clientIp(req) });
+  } catch { /* expired or missing — nothing to record */ }
   return res.json({ success: true, message: 'Logged out successfully' });
 };
 
 exports.forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-    const ip = req.ip;
+    const ip = clientIp(req);
 
     const user = await prisma.user.findUnique({ where: { email } });
 
@@ -310,7 +318,7 @@ exports.resetPassword = async (req, res) => {
       },
     });
 
-    await auditService.log({ userId: decoded.userId, action: 'PASSWORD_RESET_COMPLETED', entityType: 'user', entityId: decoded.userId, ipAddress: req.ip, actorLabel: 'system' });
+    await auditService.log({ userId: decoded.userId, action: 'PASSWORD_RESET_COMPLETED', entityType: 'user', entityId: decoded.userId, ipAddress: clientIp(req), actorLabel: 'system' });
 
     return res.json({ success: true, message: 'Password updated. All sessions have been invalidated.' });
   } catch (err) {
@@ -344,7 +352,7 @@ exports.verify2FA = async (req, res) => {
     const valid = totp.check(String(code), user.totpSecret);
     if (!valid) return res.status(400).json({ success: false, error: 'Invalid code' });
     await prisma.user.update({ where: { id: req.user.userId }, data: { totpEnabled: true } });
-    await auditService.log({ userId: req.user.userId, action: '2FA_ENABLED', entityType: 'user', entityId: req.user.userId, ipAddress: req.ip, actorLabel: req.user.email });
+    await auditService.log({ userId: req.user.userId, action: '2FA_ENABLED', entityType: 'user', entityId: req.user.userId, ipAddress: clientIp(req), actorLabel: req.user.email });
     return res.json({ success: true, message: '2FA enabled successfully' });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -362,7 +370,7 @@ exports.disable2FA = async (req, res) => {
       return res.status(400).json({ success: false, error: 'Enter your password and a current 2FA code to turn 2FA off.' });
     }
     await prisma.user.update({ where: { id: req.user.userId }, data: { totpEnabled: false, totpSecret: null } });
-    await auditService.log({ userId: req.user.userId, action: '2FA_DISABLED', entityType: 'user', entityId: req.user.userId, ipAddress: req.ip, actorLabel: req.user.email });
+    await auditService.log({ userId: req.user.userId, action: '2FA_DISABLED', entityType: 'user', entityId: req.user.userId, ipAddress: clientIp(req), actorLabel: req.user.email });
     return res.json({ success: true, message: '2FA disabled' });
   } catch (err) {
     return res.status(500).json({ success: false, error: 'Server error' });
@@ -416,7 +424,7 @@ exports.register = async (req, res) => {
     });
 
     await emailService.sendWelcome({ to: email, name: fullName, role, tempPassword: password });
-    await auditService.log({ userId: caller.userId, action: 'USER_CREATED', entityType: 'user', entityId: user.id, ipAddress: req.ip, actorLabel: caller.email });
+    await auditService.log({ userId: caller.userId, action: 'USER_CREATED', entityType: 'user', entityId: user.id, ipAddress: clientIp(req), actorLabel: caller.email });
 
     return res.status(201).json({ success: true, userId: user.id, message: 'User created and welcome email sent.' });
   } catch (err) {
@@ -507,9 +515,9 @@ exports.changePassword = async (req, res) => {
       where: { id: user.id },
       data: { passwordHash, mustChangePassword: false, lastPasswordChange: new Date(Date.now() - 2000) },
     });
-    await auditService.log({ userId: user.id, action: 'PASSWORD_CHANGED', entityType: 'user', entityId: user.id, ipAddress: req.ip, actorLabel: user.email });
+    await auditService.log({ userId: user.id, action: 'PASSWORD_CHANGED', entityType: 'user', entityId: user.id, ipAddress: clientIp(req), actorLabel: user.email });
     // Other sessions are signed out; this device gets fresh tokens so it stays signed in.
-    const tokens = issueTokens(user);
+    const tokens = deliverTokens(req, res, issueTokens(user));
     res.json({ success: true, message: 'Password changed successfully. All previous sessions have been invalidated.', ...tokens });
   } catch (err) {
     logger.error('changePassword error:', err);
@@ -630,7 +638,7 @@ exports.requestPasswordReset = async (req, res) => {
       }).catch(() => {});
     }
 
-    await auditService.log({ userId: user.id, action: 'PASSWORD_RESET_REQUESTED', entityType: 'user', entityId: user.id, ipAddress: req.ip, actorLabel: email });
+    await auditService.log({ userId: user.id, action: 'PASSWORD_RESET_REQUESTED', entityType: 'user', entityId: user.id, ipAddress: clientIp(req), actorLabel: email });
 
     return res.json(success);
   } catch (err) {
@@ -682,12 +690,12 @@ exports.reviewPasswordReset = async (req, res) => {
         </div>`,
       }).catch(() => {});
 
-      await auditService.log({ userId: resetReq.userId, action: 'PASSWORD_RESET_APPROVED', entityType: 'user', entityId: resetReq.userId, ipAddress: req.ip, actorLabel: 'manager' });
+      await auditService.log({ userId: resetReq.userId, action: 'PASSWORD_RESET_APPROVED', entityType: 'user', entityId: resetReq.userId, ipAddress: clientIp(req), actorLabel: 'manager' });
 
       return res.json({ success: true, action: 'approved', message: 'Password reset approved. User can now login with their new password.' });
     } else {
       await prisma.passwordResetRequest.update({ where: { token }, data: { status: 'REJECTED', reviewedAt: new Date() } });
-      await auditService.log({ userId: resetReq.userId, action: 'PASSWORD_RESET_REJECTED', entityType: 'user', entityId: resetReq.userId, ipAddress: req.ip, actorLabel: 'manager' });
+      await auditService.log({ userId: resetReq.userId, action: 'PASSWORD_RESET_REJECTED', entityType: 'user', entityId: resetReq.userId, ipAddress: clientIp(req), actorLabel: 'manager' });
       return res.json({ success: true, action: 'rejected', message: 'Reset request rejected.' });
     }
   } catch (err) {
@@ -737,7 +745,7 @@ exports.issueCredentials = async (req, res) => {
       </div>`,
     }).catch(() => {});
 
-    await auditService.log({ userId: caller.userId, action: 'CREDENTIALS_ISSUED', entityType: 'user', entityId: userId, ipAddress: req.ip, actorLabel: caller.email });
+    await auditService.log({ userId: caller.userId, action: 'CREDENTIALS_ISSUED', entityType: 'user', entityId: userId, ipAddress: clientIp(req), actorLabel: caller.email });
 
     res.json({ success: true, message: `New credentials sent to ${target.email}`, tempPassword: pw });
   } catch (err) {
