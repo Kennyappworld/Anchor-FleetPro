@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, Clock, Send, FileText, Wrench, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { jobService, invoiceService } from '../../services/api';
+import { jobService, invoiceService, estimateService } from '../../services/api';
 
 // Previously this page showed the same made-up job (JB-2647) for every job and
 // its buttons only pretended to work. It now loads the real job and saves changes.
@@ -24,6 +24,7 @@ export default function JobDetailPage() {
   const [missing, setMissing] = useState(false);
   const [noteInput, setNoteInput] = useState('');
   const [busy, setBusy] = useState('');
+  const [est, setEst] = useState({ parts: '', labour: '', notes: '' });
 
   const load = useCallback(async () => {
     try {
@@ -78,6 +79,24 @@ export default function JobDetailPage() {
     changeStatus(null, note.slice(0, 1000));
   };
 
+  // Parts + labour → estimate; the server moves the job to ESTIMATE_SENT and emails the fleet.
+  const sendEstimate = async (e) => {
+    e.preventDefault();
+    const parts = Number(est.parts || 0), labour = Number(est.labour || 0);
+    if (!(parts >= 0 && labour >= 0) || parts + labour <= 0) { toast.error('Enter the parts and labour amounts'); return; }
+    setBusy('estimate');
+    try {
+      await estimateService.create({ jobId: job.id, partsTotal: parts, labourTotal: labour, notes: est.notes.trim() || undefined });
+      toast.success('Estimate sent to the fleet for approval');
+      setEst({ parts: '', labour: '', notes: '' });
+      await load();
+    } catch (err) {
+      toast.error(errMsg(err, 'Could not send the estimate'));
+    } finally { setBusy(''); }
+  };
+
+  const canQuote = ['SUBMITTED', 'DIAGNOSED', 'ESTIMATE_QUERIED'].includes(job.status);
+
   const generateInvoice = async () => {
     setBusy('invoice');
     try {
@@ -110,7 +129,7 @@ export default function JobDetailPage() {
               {job.status === 'ESTIMATE_QUERIED' ? 'Fleet queried the estimate — revise and resend it' : 'Waiting for the fleet to approve the estimate'}
             </span>
           )}
-          {next && next !== 'ESTIMATE_APPROVED' && (
+          {next && next !== 'ESTIMATE_APPROVED' && next !== 'ESTIMATE_SENT' && (
             <button onClick={() => changeStatus(next)} disabled={!!busy} className="btn-teal disabled:opacity-50">
               <Wrench className="w-3.5 h-3.5" />{busy === 'status' ? 'Updating…' : `→ ${label(next)}`}
             </button>
@@ -176,6 +195,23 @@ export default function JobDetailPage() {
             </div>
           </div>
 
+
+          {canQuote && (
+            <form className="panel" onSubmit={sendEstimate}>
+              <div className="text-xs font-semibold text-[var(--text)] mb-1">{job.status === 'ESTIMATE_QUERIED' ? 'Send a revised estimate' : 'Send estimate'}</div>
+              <p className="text-[11px] text-[var(--text3)] mb-3">The fleet manager is emailed and approves or queries it before repair starts.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><label className="form-label">Parts (₦)</label><input className="form-input" type="number" min="0" step="0.01" inputMode="decimal" value={est.parts} onChange={(e) => setEst({ ...est, parts: e.target.value })} placeholder="0" /></div>
+                <div><label className="form-label">Labour (₦)</label><input className="form-input" type="number" min="0" step="0.01" inputMode="decimal" value={est.labour} onChange={(e) => setEst({ ...est, labour: e.target.value })} placeholder="0" /></div>
+              </div>
+              <label className="form-label mt-3">What will be done</label>
+              <textarea className="form-input" rows={2} maxLength={4000} value={est.notes} onChange={(e) => setEst({ ...est, notes: e.target.value })} placeholder="e.g. Replace front pads and discs, flush brake fluid" />
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-xs text-[var(--text3)]">Total <b className="text-gold">{money(Number(est.parts || 0) + Number(est.labour || 0))}</b></span>
+                <button type="submit" disabled={!!busy} className="btn-primary disabled:opacity-50">{busy === 'estimate' ? 'Sending…' : 'Send to fleet'}</button>
+              </div>
+            </form>
+          )}
           {estimate && (
             <div className="panel">
               <div className="flex items-center justify-between mb-3">

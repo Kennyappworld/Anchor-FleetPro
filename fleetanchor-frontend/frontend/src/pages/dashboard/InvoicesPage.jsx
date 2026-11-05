@@ -11,12 +11,30 @@ export default function InvoicesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(null);
+  const [payFor, setPayFor] = useState(null);   // invoice being marked as paid
+  const [payRef, setPayRef] = useState('');
+  const [paying, setPaying] = useState(false);
+
+  // For payments received outside Paystack (bank transfer, cash, cheque).
+  const confirmPaid = async () => {
+    if (!payFor) return;
+    setPaying(true);
+    try {
+      await invoiceService.confirmPayment(payFor.id, payRef.trim() || undefined);
+      toast.success(`${payFor.invoiceNumber} marked as paid and the job closed`);
+      setPayFor(null); setPayRef('');
+      load(true);
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not mark as paid');
+    } finally { setPaying(false); }
+  };
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
       const res = await invoiceService.list({ limit: 200 });
-      setInvoices(res.data?.data || res.data?.invoices || []);
+      // The API returns the job as `job`; this screen reads `jobRequest`.
+      setInvoices((res.data?.data || res.data?.invoices || []).map((i) => ({ ...i, jobRequest: i.jobRequest || i.job })));
     } catch { toast.error('Failed to load invoices'); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);
@@ -80,7 +98,7 @@ export default function InvoicesPage() {
           ) : (
             <table className="tbl">
               <thead>
-                <tr><th>Invoice #</th><th>Job #</th><th>Vehicle</th><th>Vendor</th><th>Amount</th><th>Status</th><th>Date</th><th>PDF</th></tr>
+                <tr><th>Invoice #</th><th>Job #</th><th>Vehicle</th><th>Vendor</th><th>Amount</th><th>Status</th><th>Date</th><th>PDF</th><th></th></tr>
               </thead>
               <tbody>
                 {invoices.map(inv => {
@@ -102,6 +120,13 @@ export default function InvoicesPage() {
                           <Download size={11} /> {downloading === inv.id ? '...' : 'PDF'}
                         </button>
                       </td>
+                      <td>
+                        {!isPaid && (
+                          <button onClick={() => { setPayFor(inv); setPayRef(''); }} className="btn-ghost text-[10px] py-1 px-2 flex items-center gap-1">
+                            <CheckCircle size={11} /> Mark paid
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -110,6 +135,21 @@ export default function InvoicesPage() {
           )}
         </div>
       </div>
+
+      {payFor && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="border border-white/[0.12] rounded-2xl p-6 w-full max-w-sm shadow-2xl" style={{ backgroundColor: '#0d1f38' }}>
+            <div className="text-sm font-semibold text-[var(--text)] mb-1">Mark {payFor.invoiceNumber} as paid?</div>
+            <p className="text-[11px] text-[var(--text3)] mb-4">Use this for payments received by bank transfer, cash or cheque. The job will be closed. This is recorded in the audit log and cannot be undone here.</p>
+            <label className="form-label">Payment reference (optional)</label>
+            <input className="form-input mb-4" value={payRef} onChange={(e) => setPayRef(e.target.value)} maxLength={100} placeholder="e.g. bank transfer reference" />
+            <div className="flex gap-2">
+              <button className="btn-ghost flex-1 justify-center" onClick={() => setPayFor(null)}>Cancel</button>
+              <button className="btn-primary flex-1 justify-center disabled:opacity-50" disabled={paying} onClick={confirmPaid}>{paying ? 'Saving…' : 'Mark as paid'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
