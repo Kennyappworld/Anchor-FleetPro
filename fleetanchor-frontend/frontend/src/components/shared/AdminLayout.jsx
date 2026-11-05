@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 const NAV = [
   { section: 'Core', items: [
     { to: '/admin',             icon: LayoutDashboard, label: 'Dashboard',       end: true },
-    { to: '/admin/jobs',        icon: Wrench,          label: 'Job Requests',    badge: 7 },
+    { to: '/admin/jobs',        icon: Wrench,          label: 'Job Requests' },
     { to: '/admin/repairs',     icon: Hammer,          label: 'Active Repairs' },
     { to: '/admin/scanner',     icon: Scan,            label: 'VIN Scanner' },
     { to: '/admin/chat',        icon: MessageCircle,   label: 'Team Chat' },
@@ -23,7 +23,7 @@ const NAV = [
     { to: '/admin/analytics',   icon: BarChart2,       label: 'Analytics' },
   ]},
   { section: 'Platform', items: [
-    { to: '/admin/subscriptions', icon: CreditCard,   label: 'Subscriptions',   badge: '!', badgeClass: 'bg-gold text-black' },
+    { to: '/admin/subscriptions', icon: CreditCard,   label: 'Subscriptions' },
     { to: '/admin/audit',       icon: Shield,          label: 'Audit Log' },
     { to: '/admin/settings',    icon: Settings,        label: 'Settings' },
   ]},

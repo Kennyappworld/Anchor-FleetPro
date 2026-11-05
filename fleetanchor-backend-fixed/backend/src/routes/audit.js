@@ -25,8 +25,9 @@ router.get('/verify-chain',
   requireRole(['SUPER_ADMIN']),
   async (req, res, next) => {
     try {
-      const { valid, firstBrokenAt } = await verifyChain(req.user.tenantId);
-      res.json({ success: true, data: { valid, firstBrokenAt } });
+      // The service returns { intact, brokenAt }; this used to read other names, so it always said "unknown".
+      const { intact, brokenAt } = await verifyChain(req.user.tenantId);
+      res.json({ success: true, data: { valid: intact, firstBrokenAt: brokenAt } });
     } catch (err) { next(err); }
   }
 );

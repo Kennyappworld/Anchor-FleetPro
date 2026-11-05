@@ -1,41 +1,61 @@
-import React, { useState } from 'react';
-import { Shield, Download, CheckCircle, AlertTriangle, Search } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Download, CheckCircle, AlertTriangle, Search, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { auditService } from '../../services/api';
+import { useAuthStore } from '../../context/authStore';
 
-const MOCK = [
-  { id:'1', action:'LOGIN_SUCCESS', actor:'a.okafor@coca-cola.com', role:'FLEET_MANAGER', entity:'user', ip:'105.113.22.14', at:'2026-05-27 09:14:22', hash:'a3f8e1c2' },
-  { id:'2', action:'JOB_CREATED', actor:'k.adeyemi@coca-cola.com', role:'FIELD_AGENT', entity:'job:JB-2647', ip:'197.210.44.31', at:'2026-05-27 09:18:05', hash:'b7d2a9f3' },
-  { id:'3', action:'ESTIMATE_APPROVED', actor:'a.okafor@coca-cola.com', role:'FLEET_MANAGER', entity:'job:JB-2647', ip:'105.113.22.14', at:'2026-05-27 10:45:17', hash:'c1e5b8d4' },
-  { id:'4', action:'JOB_STATUS_REPAIR_STARTED', actor:'e.nwosu@afrifleet.com', role:'WORKSHOP_STAFF', entity:'job:JB-2647', ip:'10.0.0.14', at:'2026-05-27 11:00:33', hash:'d9f4c6e5' },
-  { id:'5', action:'PAYMENT_RECEIVED', actor:'paystack', role:'SYSTEM', entity:'invoice:INV-2601', ip:'paystack-webhook', at:'2026-05-27 13:22:48', hash:'e2a7b1f6' },
-  { id:'6', action:'VENDOR_SUSPENDED', actor:'admin@afrifleet.com', role:'OEM_ADMIN', entity:'vendor:UAC Nigeria', ip:'10.0.0.1', at:'2026-05-26 16:05:11', hash:'f6c3d8a7' },
-  { id:'7', action:'USER_CREATED', actor:'a.okafor@coca-cola.com', role:'FLEET_MANAGER', entity:'user:k.adeyemi', ip:'105.113.22.14', at:'2026-05-25 08:30:00', hash:'g8e9b2c1' },
-  { id:'8', action:'WEEKLY_BACKUP_COMPLETED', actor:'cron', role:'SYSTEM', entity:'system', ip:'internal', at:'2026-05-25 02:00:04', hash:'h4f7d5a9' },
-  { id:'9', action:'2FA_ENABLED', actor:'a.okafor@coca-cola.com', role:'FLEET_MANAGER', entity:'user:a.okafor', ip:'105.113.22.14', at:'2026-05-24 14:10:29', hash:'i1b3e6c8' },
-  { id:'10', action:'PASSWORD_RESET_COMPLETED', actor:'k.adeyemi@coca-cola.com', role:'FIELD_AGENT', entity:'user:k.adeyemi', ip:'197.210.44.31', at:'2026-05-24 09:05:17', hash:'j5d8f2a4' },
-];
+// Real audit trail from the server (this page used to show a fixed made-up list).
 
-const ACTION_COLOR = (a) => {
-  if (a.includes('FAIL')||a.includes('SUSPEND')) return 'text-anchor-red';
-  if (a.includes('SUCCESS')||a.includes('COMPLETE')||a.includes('PAID')) return 'text-anchor-green';
-  if (a.includes('CREATED')||a.includes('APPROVED')) return 'text-teal';
+const ACTION_COLOR = (a = '') => {
+  if (a.includes('FAIL') || a.includes('SUSPEND') || a.includes('DELETE')) return 'text-anchor-red';
+  if (a.includes('SUCCESS') || a.includes('COMPLETE') || a.includes('PAID') || a.includes('CONFIRM')) return 'text-anchor-green';
+  if (a.includes('CREATED') || a.includes('APPROVED')) return 'text-teal';
   return 'text-[var(--text3)]';
 };
+const when = (d) => new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export default function AuditPage() {
+  const isSuper = useAuthStore((s) => s.user?.role === 'SUPER_ADMIN');
+  const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [chainValid] = useState(true);
+  const [chain, setChain] = useState(null);
 
-  const logs = MOCK.filter(l => !search || l.action.includes(search.toUpperCase()) || l.actor.includes(search.toLowerCase()) || l.entity.includes(search));
+  const load = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const res = await auditService.list({ page: p, limit: 100 });
+      setLogs(res.data.logs || res.data.data || []);
+      setTotal(res.data.total || 0);
+      setPages(res.data.pages || 1);
+      setPage(p);
+    } catch (e) {
+      toast.error(e?.response?.data?.error || 'Could not load the audit log');
+    } finally { setLoading(false); }
+  }, []);
 
-  const exportCSV = () => {
-    const hdr = ['Timestamp','Action','Actor','Role','Entity','IP','Hash'].join(',');
-    const rows = MOCK.map(l => [l.at,l.action,l.actor,l.role,l.entity,l.ip,l.hash].join(','));
-    const csv = [hdr,...rows].join('\n');
-    const blob = new Blob([csv],{type:'text/csv'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href=url; a.download=`audit-log-${Date.now()}.csv`; a.click();
-    toast.success('Audit log exported as CSV');
+  useEffect(() => { load(1); }, [load]);
+  useEffect(() => {
+    if (!isSuper) return;
+    auditService.verifyChain().then((r) => setChain(r.data.data)).catch(() => setChain(null));
+  }, [isSuper]);
+
+  const q = search.trim().toLowerCase();
+  const shown = logs.filter((l) => !q || [l.action, l.actorLabel, l.user?.email, l.user?.fullName, l.entityType, l.entityId].some((v) => String(v || '').toLowerCase().includes(q)));
+
+  const exportCSV = async () => {
+    try {
+      const res = await auditService.export('csv');
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a'); a.href = url; a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`; a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Audit log exported');
+    } catch (e) {
+      toast.error('Export failed — your account may not have export permission');
+    }
   };
 
   return (
@@ -43,45 +63,53 @@ export default function AuditPage() {
       <div className="page-header">
         <div>
           <h1 className="text-sm font-semibold text-[var(--text)]">Audit Log</h1>
-          <p className="text-[10px] text-[var(--text3)]">Hash-chained tamper-evident records — every action logged</p>
+          <p className="text-[10px] text-[var(--text3)]">Every sign-in, change and payment, with who did it and from where · {total.toLocaleString()} records</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={exportCSV} className="btn-ghost"><Download className="w-3.5 h-3.5"/>Export CSV</button>
+          <button onClick={() => load(page)} className="btn-ghost p-1.5" aria-label="Refresh"><RefreshCw className="w-3.5 h-3.5" /></button>
+          <button onClick={exportCSV} className="btn-ghost"><Download className="w-3.5 h-3.5" />Export CSV</button>
         </div>
       </div>
 
-      {/* Chain integrity banner */}
-      <div className={`mx-5 mt-4 flex items-center gap-2 rounded-xl p-3 text-xs ${chainValid?'bg-anchor-green/10 border border-anchor-green/20 text-anchor-green':'bg-anchor-red/10 border border-anchor-red/20 text-anchor-red'}`}>
-        {chainValid ? <CheckCircle className="w-4 h-4 flex-shrink-0"/> : <AlertTriangle className="w-4 h-4 flex-shrink-0"/>}
-        {chainValid
-          ? `Chain integrity verified — all ${MOCK.length} records intact. SHA-256 hash chain unbroken.`
-          : 'Chain integrity BROKEN — records may have been tampered with. Contact security team immediately.'}
-      </div>
+      {chain && (
+        <div className={`mx-5 mt-4 flex items-center gap-2 rounded-xl p-3 text-xs ${chain.valid ? 'bg-anchor-green/10 border border-anchor-green/20 text-anchor-green' : 'bg-anchor-red/10 border border-anchor-red/20 text-anchor-red'}`}>
+          {chain.valid ? <CheckCircle className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
+          {chain.valid ? 'Tamper check passed — the record chain is unbroken.' : 'Tamper check failed — a record in the chain does not match. Investigate before relying on this log.'}
+        </div>
+      )}
 
       <div className="px-5 pt-4">
         <div className="flex items-center gap-1.5 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1.5 max-w-xs mb-4">
-          <Search className="w-3 h-3 text-[var(--text3)]"/>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter by action, user, entity…" className="bg-transparent text-xs text-[var(--text)] placeholder-[var(--text3)] outline-none w-full"/>
+          <Search className="w-3 h-3 text-[var(--text3)]" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Filter by action, user, item…" className="bg-transparent text-xs text-[var(--text)] placeholder-[var(--text3)] outline-none w-full" />
         </div>
 
         <div className="table-wrap">
           <table className="tbl">
-            <thead><tr><th>Timestamp</th><th>Action</th><th>Actor</th><th>Role</th><th>Entity</th><th>IP</th><th>Hash</th></tr></thead>
+            <thead><tr><th>Time</th><th>Action</th><th>Who</th><th>Role</th><th>Item</th><th>IP address</th></tr></thead>
             <tbody>
-              {logs.map(l=>(
+              {loading && <tr><td colSpan={6} className="text-center py-6 text-[var(--text3)]">Loading…</td></tr>}
+              {!loading && shown.length === 0 && <tr><td colSpan={6} className="text-center py-6 text-[var(--text3)]">No records{q ? ' match this filter' : ' yet'}.</td></tr>}
+              {!loading && shown.map((l) => (
                 <tr key={l.id}>
-                  <td className="font-mono text-[10px]">{l.at}</td>
+                  <td className="font-mono text-[10px]">{when(l.createdAt)}</td>
                   <td><span className={`font-mono text-[10px] font-semibold ${ACTION_COLOR(l.action)}`}>{l.action}</span></td>
-                  <td className="text-[10px]">{l.actor}</td>
-                  <td><span className="text-[9px] text-[var(--text3)] bg-white/[0.06] px-1.5 py-0.5 rounded">{l.role}</span></td>
-                  <td className="text-[10px] text-teal">{l.entity}</td>
-                  <td className="font-mono text-[10px] text-[var(--text3)]">{l.ip}</td>
-                  <td className="font-mono text-[10px] text-[var(--text3)]">{l.hash}…</td>
+                  <td className="text-[11px]">{l.user?.fullName || l.actorLabel || 'System'}<span className="block text-[10px] text-[var(--text3)]">{l.user?.email || ''}</span></td>
+                  <td><span className="text-[9px] text-[var(--text3)] bg-white/[0.06] px-1.5 py-0.5 rounded">{l.user?.role || 'SYSTEM'}</span></td>
+                  <td className="text-[10px] text-teal">{l.entityType}{l.entityId ? ` · ${String(l.entityId).slice(0, 8)}` : ''}</td>
+                  <td className="font-mono text-[10px] text-[var(--text3)]">{l.ipAddress || '—'}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {pages > 1 && (
+          <div className="flex items-center justify-end gap-2 pb-6 text-xs text-[var(--text3)]">
+            <button className="btn-ghost" disabled={page <= 1} onClick={() => load(page - 1)}>Newer</button>
+            <span>Page {page} of {pages}</span>
+            <button className="btn-ghost" disabled={page >= pages} onClick={() => load(page + 1)}>Older</button>
+          </div>
+        )}
       </div>
     </div>
   );
