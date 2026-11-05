@@ -1,7 +1,8 @@
 const logger = require('../config/logger');
+const clientIp = require('../utils/clientIp');
 
 exports.errorHandler = (err, req, res, next) => {
-  logger.error(`${req.method} ${req.originalUrl} — ${err.message}`, { stack: err.stack, ip: req.ip });
+  logger.error(`${req.method} ${req.originalUrl} — ${err.message}`, { stack: err.stack, ip: clientIp(req) });
 
   if (err.name === 'ValidationError') {
     return res.status(400).json({ success: false, error: err.message });

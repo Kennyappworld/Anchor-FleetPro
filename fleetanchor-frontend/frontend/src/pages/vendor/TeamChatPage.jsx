@@ -1,160 +1,259 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Send, Paperclip, Image, X, MessageSquare, Hash, Lock, Users, ChevronDown, Smile } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Send, Image, X, MessageSquare, Hash, Lock, Users, Smile, Trash2 } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { useAuthStore } from '../../context/authStore';
+import { chatService, vendorService } from '../../services/api';
 
-/* ── Mock data ─────────────────────────────────────────────── */
-const ME = { id:'me', name:'Adebayo Okafor', role:'Fleet Manager', initials:'AO', color:'bg-teal' };
+// Team chat, saved on the server. Each fleet has its own channels, shared with
+// its workshop. Workshop users pick which fleet's chat they are in.
+// New messages arrive by checking every few seconds.
 
-const CHANNELS = [
-  { id:'general',    name:'general',        desc:'Team-wide updates',           locked:false },
-  { id:'oem-ops',    name:'oem-ops',         desc:'OEM ↔ Vendor operations',    locked:false },
-  { id:'repairs',    name:'active-repairs',  desc:'Live repair discussions',     locked:false },
-  { id:'billing',    name:'billing',         desc:'Invoices & payments',         locked:true  },
-];
+const POLL_MS = 4000;
+const SUMMARY_MS = 20000;
+const COLORS = ['bg-teal', 'bg-amber-500', 'bg-anchor-blue', 'bg-purple-500', 'bg-pink-500', 'bg-emerald-600'];
+const EMOJIS = ['👍', '✅', '🔧', '⚠️', '🚗', '💰', '📋', '🔴', '🟡', '🟢'];
+const ROLE = { SUPER_ADMIN: 'Super Admin', OEM_ADMIN: 'Workshop Admin', WORKSHOP_STAFF: 'Workshop Staff', FLEET_MANAGER: 'Fleet Manager',
+  MAINTENANCE_SUPERVISOR: 'Maintenance Supervisor', FIELD_AGENT: 'Field Agent', DRIVER: 'Driver' };
 
-const MEMBERS = [
-  { id:'ao', name:'Adebayo Okafor',   role:'Fleet Manager',         initials:'AO', color:'bg-teal',        status:'online' },
-  { id:'ws', name:'Workshop Staff',   role:'Workshop Staff',        initials:'WS', color:'bg-amber-500',   status:'online' },
-  { id:'oa', name:'OEM Admin',        role:'OEM Admin',             initials:'OA', color:'bg-anchor-blue', status:'away'   },
-  { id:'em', name:'E. Maintenance',   role:'Maintenance Supervisor',initials:'EM', color:'bg-purple-500',  status:'offline'},
-];
-
-const SEED = {
-  general: [
-    { id:'1', user:{id:'ws',name:'Workshop Staff',initials:'WS',color:'bg-amber-500'},
-      text:'Good morning team. Bay 3 is clear for new jobs today.', ts:'2026-05-28T08:02:00Z', type:'text' },
-    { id:'2', user:{id:'oa',name:'OEM Admin',initials:'OA',color:'bg-anchor-blue'},
-      text:'Noted. Please prioritise the Coca-Cola vehicles — they have a delivery deadline Friday.', ts:'2026-05-28T08:15:00Z', type:'text' },
-    { id:'3', user:ME,
-      text:'Understood. LND-421-XY alternator repair is marked critical.', ts:'2026-05-28T08:22:00Z', type:'text' },
-  ],
-  'oem-ops': [
-    { id:'4', user:{id:'oa',name:'OEM Admin',initials:'OA',color:'bg-anchor-blue'},
-      text:'New vendor PMC FAW Motors has been onboarded. Please reach out for their first job walkthrough.', ts:'2026-05-28T09:00:00Z', type:'text' },
-  ],
-  repairs: [
-    { id:'5', user:{id:'ws',name:'Workshop Staff',initials:'WS',color:'bg-amber-500'},
-      text:'JB-2647 — engine inspection done. Estimate ready for your approval.', ts:'2026-05-28T10:30:00Z', type:'text' },
-    { id:'6', user:ME,
-      text:'Reviewing now. Back in 5 min.', ts:'2026-05-28T10:33:00Z', type:'text' },
-  ],
-  billing: [
-    { id:'7', user:{id:'oa',name:'OEM Admin',initials:'OA',color:'bg-anchor-blue'},
-      text:'Invoice #INV-0042 confirmed paid. ₦142,000 received via Paystack.', ts:'2026-05-28T11:00:00Z', type:'text' },
-  ],
-};
+const initials = (name = '') => name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || '?';
+const colorFor = (id = '') => COLORS[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+const errMsg = (e, fb) => e?.response?.data?.error || fb;
 
 function ts(iso) {
   const d = new Date(iso);
   const now = new Date();
   const diff = now - d;
   if (diff < 60000) return 'Just now';
-  if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
-  const today = now.toDateString() === d.toDateString();
-  if (today) return d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
-  return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short' }) + ' · ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  if (now.toDateString() === d.toDateString()) return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ' · ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
+const fullTs = (iso) => new Date(iso).toLocaleString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-function fullTs(iso) {
-  return new Date(iso).toLocaleString('en-GB', {
-    weekday:'short', day:'2-digit', month:'short', year:'numeric',
-    hour:'2-digit', minute:'2-digit', second:'2-digit'
+// Last-read time per fleet+channel, kept in this browser only (for the unread dots).
+const readKey = (vendorId, ch) => `fa-chat-read:${vendorId}:${ch}`;
+const getRead = (vendorId, ch) => { try { return localStorage.getItem(readKey(vendorId, ch)) || ''; } catch { return ''; } };
+const setRead = (vendorId, ch, iso) => { try { localStorage.setItem(readKey(vendorId, ch), iso); } catch { /* storage unavailable */ } };
+
+// Shrink photos before sending so they stay well under the server's 500 KB limit.
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new window.Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let max = 1280, quality = 0.78, out = '';
+      for (let i = 0; i < 5; i++) {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        out = c.toDataURL('image/jpeg', quality);
+        if (out.length < 650 * 1024) return resolve(out);
+        max *= 0.75; quality -= 0.08;
+      }
+      reject(new Error('Image is too large even after shrinking'));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('That file is not an image')); };
+    img.src = url;
   });
 }
 
-const EMOJIS = ['👍','✅','🔧','⚠️','🚗','💰','📋','🔴','🟡','🟢'];
-
 export default function TeamChatPage() {
-  const [channel, setChannel]   = useState('general');
-  const [messages, setMessages] = useState(SEED);
-  const [input, setInput]       = useState('');
-  const [hovered, setHovered]   = useState(null);
+  const user = useAuthStore((s) => s.user);
+  const isFleetUser = !!user?.vendorId;
+
+  const [fleets, setFleets] = useState([]);
+  const [vendorId, setVendorId] = useState(user?.vendorId || '');
+  const [summary, setSummary] = useState(null);
+  const [channel, setChannel] = useState('general');
+  const [msgs, setMsgs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [input, setInput] = useState('');
+  const [sending, setSending] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [imagePreview, setImagePreview] = useState(null);
   const bottomRef = useRef(null);
-  const fileRef   = useRef(null);
-  const inputRef  = useRef(null);
+  const listRef = useRef(null);
+  const fileRef = useRef(null);
+  const inputRef = useRef(null);
+  const lastAtRef = useRef(null);
 
-  const ch = CHANNELS.find(c => c.id === channel);
-  const msgs = messages[channel] || [];
+  // Workshop users: load the fleets they can reach and pick the first.
+  useEffect(() => {
+    if (isFleetUser) return;
+    vendorService.list({ limit: 100 })
+      .then((res) => {
+        const list = res.data.data || [];
+        setFleets(list);
+        setVendorId((v) => v || list[0]?.id || '');
+      })
+      .catch(() => toast.error('Could not load fleets'));
+  }, [isFleetUser]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs, channel]);
+  const loadSummary = useCallback(async () => {
+    if (!vendorId) return;
+    try { setSummary((await chatService.summary(isFleetUser ? undefined : vendorId)).data); } catch { /* keep the last one */ }
+  }, [vendorId, isFleetUser]);
 
-  const send = () => {
-    const text = input.trim();
-    if (!text && !imagePreview) return;
-    const msg = {
-      id: Date.now().toString(),
-      user: ME,
-      text: text || '',
-      ts: new Date().toISOString(),
-      type: imagePreview ? 'image' : 'text',
-      imageUrl: imagePreview || null,
+  useEffect(() => {
+    loadSummary();
+    const t = setInterval(loadSummary, SUMMARY_MS);
+    return () => clearInterval(t);
+  }, [loadSummary]);
+
+  const vid = isFleetUser ? undefined : vendorId;
+
+  // Load the channel, then keep fetching only newer messages.
+  useEffect(() => {
+    if (!vendorId) return undefined;
+    let stop = false;
+    setMsgs([]);
+    lastAtRef.current = null;
+    setLoading(true);
+
+    const pull = async (first) => {
+      try {
+        const res = await chatService.messages(channel, vid, first ? undefined : lastAtRef.current || undefined);
+        if (stop) return;
+        const rows = res.data.data || [];
+        if (first) setMsgs(rows);
+        else if (rows.length) setMsgs((prev) => {
+          const seen = new Set(prev.map((m) => m.id));
+          return [...prev, ...rows.filter((m) => !seen.has(m.id))];
+        });
+        if (rows.length) {
+          lastAtRef.current = rows[rows.length - 1].createdAt;
+          setRead(vendorId, channel, lastAtRef.current);
+        }
+      } catch (e) {
+        if (first && !stop) toast.error(errMsg(e, 'Could not load messages'));
+      } finally {
+        if (first && !stop) setLoading(false);
+      }
     };
-    setMessages(prev => ({ ...prev, [channel]: [...(prev[channel]||[]), msg] }));
-    setInput('');
-    setImagePreview(null);
-    setShowEmoji(false);
+
+    pull(true);
+    const t = setInterval(() => { if (document.visibilityState === 'visible') pull(false); }, POLL_MS);
+    return () => { stop = true; clearInterval(t); };
+  }, [vendorId, channel, vid]);
+
+  // Keep the newest message in view when already near the bottom.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 240) bottomRef.current?.scrollIntoView({ block: 'end' });
+  }, [msgs]);
+
+  const channels = summary?.channels || [];
+  const ch = channels.find((c) => c.id === channel) || { id: channel, name: channel, desc: '', canWrite: true };
+  const members = summary?.members || [];
+
+  const send = async () => {
+    const text = input.trim();
+    if ((!text && !imagePreview) || sending) return;
+    setSending(true);
+    try {
+      const res = await chatService.send(channel, vid, { text, imageData: imagePreview || undefined });
+      const m = res.data.data;
+      setMsgs((prev) => (prev.some((x) => x.id === m.id) ? prev : [...prev, m]));
+      lastAtRef.current = m.createdAt;
+      setRead(vendorId, channel, m.createdAt);
+      setInput('');
+      setImagePreview(null);
+      setShowEmoji(false);
+      setTimeout(() => bottomRef.current?.scrollIntoView({ block: 'end' }), 30);
+    } catch (e) {
+      toast.error(errMsg(e, 'Message not sent'));
+    } finally {
+      setSending(false);
+    }
   };
 
-  const handleFile = (e) => {
+  const remove = async (m) => {
+    try {
+      await chatService.remove(m.id, vid);
+      setMsgs((prev) => prev.filter((x) => x.id !== m.id));
+    } catch (e) {
+      toast.error(errMsg(e, 'Could not delete the message'));
+    }
+  };
+
+  const handleFile = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) { alert('Max file size is 5MB'); return; }
-    const reader = new FileReader();
-    reader.onload = ev => setImagePreview(ev.target.result);
-    reader.readAsDataURL(file);
+    if (file.size > 15 * 1024 * 1024) { toast.error('Max image size is 15 MB'); return; }
+    try { setImagePreview(await compressImage(file)); } catch (err) { toast.error(err.message); }
   };
 
-  const isMe = (msg) => msg.user.id === 'me';
+  const canModerate = ['OEM_ADMIN', 'SUPER_ADMIN', 'FLEET_MANAGER'].includes(user?.role);
 
-  // Group messages by date
-  const grouped = [];
-  let lastDate = '';
-  msgs.forEach(m => {
-    const d = new Date(m.ts).toDateString();
-    if (d !== lastDate) { grouped.push({ type:'divider', label: d === new Date().toDateString() ? 'Today' : new Date(m.ts).toLocaleDateString('en-GB',{weekday:'long',day:'2-digit',month:'long'}) }); lastDate = d; }
-    grouped.push({ type:'msg', msg: m });
-  });
+  const grouped = useMemo(() => {
+    const out = [];
+    let lastDate = '';
+    msgs.forEach((m) => {
+      const d = new Date(m.createdAt).toDateString();
+      if (d !== lastDate) {
+        out.push({ type: 'divider', key: `d-${d}`, label: d === new Date().toDateString() ? 'Today' : new Date(m.createdAt).toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long' }) });
+        lastDate = d;
+      }
+      out.push({ type: 'msg', key: m.id, msg: m });
+    });
+    return out;
+  }, [msgs]);
+
+  if (!isFleetUser && fleets.length === 0) {
+    return (
+      <div className="content text-center py-16 text-[var(--text3)]">
+        <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-40" />
+        <p className="text-sm">Team chat opens once you have at least one fleet.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0">
-
-      {/* Left: channel + member list */}
-      <div className="hidden md:flex w-44 border-r border-white/[0.08] flex-col flex-shrink-0" style={{ backgroundColor:'#0a1628' }}>
+      {/* Left: channels + members (hidden on phones) */}
+      <div className="hidden md:flex w-48 border-r border-white/[0.08] flex-col flex-shrink-0" style={{ backgroundColor: '#0a1628' }}>
+        {!isFleetUser && (
+          <div className="px-3 pt-3">
+            <div className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-1.5">Fleet</div>
+            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="form-input py-1.5 text-[12px]" aria-label="Fleet">
+              {fleets.map((f) => <option key={f.id} value={f.id}>{f.companyName}</option>)}
+            </select>
+          </div>
+        )}
         <div className="px-3 py-3 border-b border-white/[0.08]">
           <div className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-2">Channels</div>
-          {CHANNELS.map(c => (
-            <button key={c.id} onClick={() => !c.locked && setChannel(c.id)}
-              className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left mb-0.5 transition-colors
-                ${channel===c.id ? 'bg-white/[0.10] text-white' : 'text-white/50 hover:bg-white/[0.05] hover:text-white/80'}
-                ${c.locked ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}>
-              {c.locked ? <Lock className="w-3 h-3 flex-shrink-0"/> : <Hash className="w-3 h-3 flex-shrink-0"/>}
-              <span className="text-[11px] truncate">{c.name}</span>
-              {(messages[c.id]||[]).length > 0 && channel!==c.id && (
-                <span className="ml-auto w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[8px] flex items-center justify-center font-bold flex-shrink-0">
-                  {(messages[c.id]||[]).length}
-                </span>
-              )}
-            </button>
-          ))}
+          {channels.map((c) => {
+            const unread = c.id !== channel && c.lastAt && c.lastAt > getRead(vendorId, c.id);
+            return (
+              <button key={c.id} onClick={() => setChannel(c.id)}
+                className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-left mb-0.5 transition-colors
+                  ${channel === c.id ? 'bg-white/[0.10] text-white' : 'text-white/60 hover:bg-white/[0.05] hover:text-white/80'}`}>
+                {c.canWrite ? <Hash className="w-3 h-3 flex-shrink-0" /> : <Lock className="w-3 h-3 flex-shrink-0" />}
+                <span className="text-[12px] truncate">{c.name}</span>
+                {unread && <span className="ml-auto w-2 h-2 rounded-full bg-teal flex-shrink-0" aria-label="New messages" />}
+              </button>
+            );
+          })}
         </div>
-
         <div className="px-3 py-3 flex-1 overflow-y-auto">
           <div className="text-[10px] font-bold text-white/40 uppercase tracking-wider mb-2 flex items-center gap-1">
-            <Users className="w-3 h-3"/> Members
+            <Users className="w-3 h-3" /> Members ({members.length})
           </div>
-          {MEMBERS.map(m => (
+          {members.map((m) => (
             <div key={m.id} className="flex items-center gap-2 py-1.5">
               <div className="relative flex-shrink-0">
-                <div className={`w-6 h-6 rounded-full ${m.color} flex items-center justify-center text-[9px] font-bold text-white`}>
-                  {m.initials}
-                </div>
+                <div className={`w-6 h-6 rounded-full ${colorFor(m.id)} flex items-center justify-center text-[9px] font-bold text-white`}>{initials(m.name)}</div>
                 <div className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-[#0a1628]
-                  ${m.status==='online'?'bg-green-400':m.status==='away'?'bg-amber-400':'bg-white/20'}`}/>
+                  ${m.status === 'online' ? 'bg-green-400' : m.status === 'away' ? 'bg-amber-400' : 'bg-white/20'}`} />
               </div>
               <div className="min-w-0">
-                <div className="text-[10px] text-white/80 truncate">{m.name.split(' ')[0]}</div>
-                <div className="text-[9px] text-white/30 truncate">{m.role.split(' ').slice(-1)[0]}</div>
+                <div className="text-[11px] text-white/80 truncate">{m.name}</div>
+                <div className="text-[10px] text-white/30 truncate">{ROLE[m.role] || m.role}</div>
               </div>
             </div>
           ))}
@@ -163,142 +262,129 @@ export default function TeamChatPage() {
 
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.08] flex-shrink-0" style={{ backgroundColor:'#0d1f38' }}>
-          <Hash className="w-4 h-4 text-[var(--text3)] flex-shrink-0"/>
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/[0.08] flex-shrink-0 flex-wrap" style={{ backgroundColor: '#0d1f38' }}>
+          <Hash className="w-4 h-4 text-[var(--text3)] flex-shrink-0" />
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold text-white">{ch?.name}</div>
-            <div className="text-[11px] text-white/40 truncate">{ch?.desc} · {msgs.length} messages</div>
+            <div className="text-[13px] font-semibold text-white">{ch.name}</div>
+            <div className="text-[11px] text-white/40 truncate">
+              {[summary?.vendor?.name, ch.desc].filter(Boolean).join(' · ')}
+            </div>
           </div>
-          {/* Phones: channel picker replaces the side list */}
-          <select value={channel} onChange={e => setChannel(e.target.value)} aria-label="Channel"
-            className="md:hidden form-input w-auto max-w-[45%] py-1.5">
-            {CHANNELS.filter(c => !c.locked).map(c => <option key={c.id} value={c.id}>#{c.name}</option>)}
+          {/* Phones: pickers replace the side list */}
+          {!isFleetUser && (
+            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} aria-label="Fleet" className="md:hidden form-input w-auto max-w-[45%] py-1.5">
+              {fleets.map((f) => <option key={f.id} value={f.id}>{f.companyName}</option>)}
+            </select>
+          )}
+          <select value={channel} onChange={(e) => setChannel(e.target.value)} aria-label="Channel" className="md:hidden form-input w-auto max-w-[45%] py-1.5">
+            {(channels.length ? channels : [ch]).map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
           </select>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
-          {grouped.map((item, i) => {
+        <div ref={listRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+          {loading && <div className="text-center text-xs text-white/30 py-6">Loading messages…</div>}
+          {grouped.map((item) => {
             if (item.type === 'divider') return (
-              <div key={i} className="flex items-center gap-3 my-3">
-                <div className="flex-1 h-px bg-white/[0.06]"/>
+              <div key={item.key} className="flex items-center gap-3 my-3">
+                <div className="flex-1 h-px bg-white/[0.06]" />
                 <span className="text-[10px] text-white/30 font-medium px-2">{item.label}</span>
-                <div className="flex-1 h-px bg-white/[0.06]"/>
+                <div className="flex-1 h-px bg-white/[0.06]" />
               </div>
             );
-            const { msg: m } = item;
-            const mine = isMe(m);
+            const m = item.msg;
+            const mine = m.mine;
             return (
-              <div key={m.id}
-                onMouseEnter={() => setHovered(m.id)}
-                onMouseLeave={() => setHovered(null)}
-                className={`flex gap-2.5 group ${mine ? 'flex-row-reverse' : ''}`}>
-                {/* Avatar */}
-                <div className={`w-7 h-7 rounded-full ${m.user.color} flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5`}>
-                  {m.user.initials}
+              <div key={m.id} className={`flex gap-2.5 group ${mine ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-7 h-7 rounded-full ${colorFor(m.user.id)} flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5`}>
+                  {initials(m.user.name)}
                 </div>
-                {/* Bubble */}
-                <div className={`max-w-[65%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
+                <div className={`max-w-[78%] sm:max-w-[65%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
                   {!mine && (
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-[11px] font-semibold text-white/80">{m.user.name}</span>
-                      <span className="text-[9px] text-white/30">{m.user.role}</span>
+                      <span className="text-[10px] text-white/30">{ROLE[m.user.role] || m.user.role}</span>
                     </div>
                   )}
-                  <div className={`rounded-2xl px-3 py-2 text-[12px] leading-relaxed
-                    ${mine
-                      ? 'bg-[var(--accent)] text-white rounded-tr-sm'
-                      : 'bg-white/[0.07] text-white/90 rounded-tl-sm'}`}>
-                    {m.imageUrl && (
-                      <img src={m.imageUrl} alt="attachment" className="rounded-lg max-w-full mb-1.5 max-h-48 object-cover"/>
-                    )}
+                  <div className={`rounded-2xl px-3 py-2 text-[13px] leading-relaxed break-words whitespace-pre-wrap
+                    ${mine ? 'bg-teal text-white rounded-tr-sm' : 'bg-white/[0.07] text-white/90 rounded-tl-sm'}`}>
+                    {m.imageData && <img src={m.imageData} alt="Shared" className="rounded-lg max-w-full mb-1.5 max-h-60 object-cover" />}
                     {m.text && <span>{m.text}</span>}
                   </div>
-                  {/* Timestamp — show on hover or always */}
-                  <div className={`text-[9px] text-white/25 mt-1 px-1 transition-opacity
-                    ${hovered===m.id ? 'opacity-100' : 'opacity-60'}`}
-                    title={fullTs(m.ts)}>
-                    {ts(m.ts)} {hovered===m.id && <span className="text-white/15">· {fullTs(m.ts)}</span>}
+                  <div className="flex items-center gap-2 mt-1 px-1">
+                    <span className="text-[10px] text-white/30" title={fullTs(m.createdAt)}>{ts(m.createdAt)}</span>
+                    {(mine || canModerate) && (
+                      <button onClick={() => remove(m)} title="Delete message" aria-label="Delete message"
+                        className="h-4 text-white/20 hover:text-anchor-red opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
             );
           })}
-          {msgs.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-48 text-white/20">
-              <MessageSquare className="w-8 h-8 mb-2"/>
-              <p className="text-sm">No messages yet in #{ch?.name}</p>
-              <p className="text-xs mt-1">Start the conversation below</p>
+          {!loading && msgs.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-48 text-white/25">
+              <MessageSquare className="w-8 h-8 mb-2" />
+              <p className="text-sm">No messages yet in #{ch.name}</p>
+              {ch.canWrite && <p className="text-xs mt-1">Start the conversation below</p>}
             </div>
           )}
-          <div ref={bottomRef}/>
+          <div ref={bottomRef} />
         </div>
 
-        {/* Image preview */}
         {imagePreview && (
           <div className="px-4 pb-2 flex-shrink-0">
             <div className="relative inline-block">
-              <img src={imagePreview} alt="preview" className="h-20 rounded-lg object-cover border border-white/[0.12]"/>
-              <button onClick={() => setImagePreview(null)}
+              <img src={imagePreview} alt="Preview" className="h-20 rounded-lg object-cover border border-white/[0.12]" />
+              <button onClick={() => setImagePreview(null)} aria-label="Remove image"
                 className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-anchor-red flex items-center justify-center">
-                <X className="w-3 h-3 text-white"/>
+                <X className="w-3 h-3 text-white" />
               </button>
             </div>
           </div>
         )}
 
-        {/* Emoji picker */}
         {showEmoji && (
           <div className="px-4 pb-1 flex-shrink-0">
-            <div className="flex gap-1.5 flex-wrap border border-white/[0.10] rounded-xl p-2" style={{ backgroundColor:'#0d1f38' }}>
-              {EMOJIS.map(e => (
-                <button key={e} onClick={() => { setInput(i => i + e); setShowEmoji(false); inputRef.current?.focus(); }}
+            <div className="flex gap-1.5 flex-wrap border border-white/[0.10] rounded-xl p-2" style={{ backgroundColor: '#0d1f38' }}>
+              {EMOJIS.map((e) => (
+                <button key={e} onClick={() => { setInput((i) => i + e); setShowEmoji(false); inputRef.current?.focus(); }}
                   className="text-lg hover:scale-125 transition-transform">{e}</button>
               ))}
             </div>
           </div>
         )}
 
-        {/* Input bar */}
-        {ch?.locked ? (
-          <div className="flex items-center gap-2 px-4 py-3 border-t border-white/[0.08] text-[11px] text-white/30 flex-shrink-0">
-            <Lock className="w-3.5 h-3.5"/> This channel is read-only for your role.
+        {!ch.canWrite ? (
+          <div className="flex items-center gap-2 px-4 py-3 border-t border-white/[0.08] text-[11px] text-white/40 flex-shrink-0">
+            <Lock className="w-3.5 h-3.5" /> This channel is read-only for your role.
           </div>
         ) : (
-          <div className="px-4 py-3 border-t border-white/[0.08] flex-shrink-0" style={{ backgroundColor:'#0d1f38' }}>
-            <div className="flex items-end gap-2 border border-white/[0.12] rounded-xl px-3 py-2"
-                 style={{ backgroundColor:'#0a1628' }}>
+          <div className="px-4 py-3 border-t border-white/[0.08] flex-shrink-0" style={{ backgroundColor: '#0d1f38' }}>
+            <div className="flex items-end gap-2 border border-white/[0.12] rounded-xl px-3 py-2" style={{ backgroundColor: '#0a1628' }}>
               <div className="flex gap-1.5 mb-0.5 flex-shrink-0">
-                <button onClick={() => { setShowEmoji(s => !s); }}
-                  className="text-white/30 hover:text-white/60 transition-colors">
-                  <Smile className="w-4 h-4"/>
+                <button onClick={() => setShowEmoji((s) => !s)} aria-label="Emoji" className="text-white/40 hover:text-white/70 transition-colors">
+                  <Smile className="w-4 h-4" />
                 </button>
-                <button onClick={() => fileRef.current?.click()}
-                  className="text-white/30 hover:text-white/60 transition-colors"
-                  title="Attach image (max 5MB)">
-                  <Image className="w-4 h-4"/>
+                <button onClick={() => fileRef.current?.click()} aria-label="Attach photo" title="Attach a photo"
+                  className="text-white/40 hover:text-white/70 transition-colors">
+                  <Image className="w-4 h-4" />
                 </button>
               </div>
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-                placeholder={`Message #${ch?.name}… (Enter to send, Shift+Enter for new line)`}
-                className="flex-1 bg-transparent text-[12px] text-white placeholder-white/25 outline-none resize-none max-h-24"
-                rows={1}
-              />
-              <button onClick={send} disabled={!input.trim() && !imagePreview}
-                className="flex-shrink-0 w-7 h-7 rounded-lg bg-[var(--accent)] flex items-center justify-center
-                           disabled:opacity-30 hover:opacity-90 transition-opacity mb-0.5">
-                <Send className="w-3.5 h-3.5 text-white"/>
+              <textarea ref={inputRef} value={input} maxLength={4000}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder={`Message #${ch.name}`}
+                className="flex-1 bg-transparent text-[13px] text-white placeholder-white/25 outline-none resize-none max-h-24"
+                rows={1} />
+              <button onClick={send} disabled={(!input.trim() && !imagePreview) || sending} aria-label="Send"
+                className="flex-shrink-0 w-8 h-8 rounded-lg bg-teal flex items-center justify-center disabled:opacity-30 hover:opacity-90 transition-opacity">
+                <Send className="w-3.5 h-3.5 text-white" />
               </button>
             </div>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile}/>
-            <p className="text-[9px] text-white/20 mt-1.5 ml-1">
-              📎 Images only (max 5MB) · Video files not supported to keep the app fast
-            </p>
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+            <p className="text-[10px] text-white/25 mt-1.5 ml-1 hidden sm:block">Enter to send · Shift+Enter for a new line · Photos are shrunk automatically</p>
           </div>
         )}
       </div>

@@ -5,12 +5,31 @@ const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
+const clientIp = require('../utils/clientIp');
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: parseInt(process.env.AUTH_RATE_LIMIT_MAX) || 10,
   message: { success: false, error: 'Too many auth attempts. Try again in 15 minutes.' },
-  keyGenerator: (req) => req.ip,
+  // Per address and account, so colleagues behind one office connection don't lock each other out.
+  keyGenerator: (req) => `${clientIp(req)}|${String(req.body?.email || '').toLowerCase()}`,
+});
+
+// Per account, whatever address the attempts come from (stops spread-out password guessing).
+const accountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, error: 'Too many attempts for this account. Try again in 15 minutes.' },
+  keyGenerator: (req) => `acct|${String(req.body?.email || '').toLowerCase()}`,
+  skip: (req) => !req.body?.email,
+});
+
+// The web app refreshes its session on every page load, so this one is roomier.
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  message: { success: false, error: 'Too many requests. Please slow down.' },
+  keyGenerator: (req) => clientIp(req),
 });
 
 const resetLimiter = rateLimit({
@@ -18,7 +37,7 @@ const resetLimiter = rateLimit({
   max: parseInt(process.env.RESET_RATE_LIMIT_MAX) || 3,
   message: { success: false, error: 'Too many reset requests. Try again in 1 hour.' },
   // Per IP *and* email, so one person can't lock someone else out by spamming their email.
-  keyGenerator: (req) => `${req.ip}|${String(req.body.email || '').toLowerCase()}`,
+  keyGenerator: (req) => `${clientIp(req)}|${String(req.body?.email || '').toLowerCase()}`,
 });
 
 const strongPassword = (field) => body(field)
@@ -69,9 +88,9 @@ const registerRules = [
   body('role').isIn(['FLEET_MANAGER', 'MAINTENANCE_SUPERVISOR', 'FIELD_AGENT']),
 ];
 
-router.post('/login', authLimiter, loginRules, validate, authController.login);
-router.post('/logout', authenticate, authController.logout);
-router.post('/refresh', authLimiter, authController.refreshToken);
+router.post('/login', accountLimiter, authLimiter, loginRules, validate, authController.login);
+router.post('/logout', refreshLimiter, authController.logout);
+router.post('/refresh', refreshLimiter, authController.refreshToken);
 router.post('/me', authenticate, authController.me);
 
 router.post('/forgot-password', resetLimiter, forgotRules, validate, authController.forgotPassword);

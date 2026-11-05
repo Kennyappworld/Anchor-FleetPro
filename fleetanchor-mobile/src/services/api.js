@@ -7,6 +7,8 @@ const BASE_URL = 'https://anchor-fleetpro.onrender.com/api';
 const api = axios.create({
   baseURL: BASE_URL,
   timeout: 15000,
+  // The app has no cookie jar, so ask the server to return the refresh token in the body.
+  headers: { 'X-Token-Transport': 'body' },
 });
 
 // Auto-attach token
@@ -25,7 +27,7 @@ api.interceptors.response.use(
       try {
         const refresh = await AsyncStorage.getItem('refreshToken');
         if (!refresh) throw new Error('No refresh token');
-        const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken: refresh });
+        const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken: refresh }, { headers: { 'X-Token-Transport': 'body' } });
         await AsyncStorage.setItem('accessToken', data.accessToken);
         await AsyncStorage.setItem('refreshToken', data.refreshToken);
         err.config.headers.Authorization = `Bearer ${data.accessToken}`;

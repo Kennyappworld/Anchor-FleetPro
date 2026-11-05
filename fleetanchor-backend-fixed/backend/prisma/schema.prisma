@@ -79,6 +79,7 @@ model Vendor {
   checklistTemplates ChecklistTemplate[]
   driverScores       DriverScore[]
   driverSignupRequests DriverSignupRequest[]
+  chatMessages       ChatMessage[]
   inspectionTrialStartedAt DateTime?  // 2-month trial for all plans
 
   @@index([oemId])
@@ -117,6 +118,7 @@ model User {
   jobRequests     JobRequest[]
   auditLogs       AuditLog[]
   sentNotifications Notification[]
+  chatMessages    ChatMessage[]
 
   @@index([vendorId])
   @@index([oemId])
@@ -713,4 +715,21 @@ enum ResetRequestStatus {
   APPROVED
   REJECTED
   EXPIRED
+}
+
+// Team chat: one set of channels per fleet (vendor), shared with its workshop.
+model ChatMessage {
+  id        String    @id @default(uuid())
+  vendorId  String
+  vendor    Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  channel   String
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  text      String?
+  imageData String?   // small compressed image as a data URL (max ~700 KB)
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  @@index([vendorId, channel, createdAt])
+  @@map("chat_messages")
 }

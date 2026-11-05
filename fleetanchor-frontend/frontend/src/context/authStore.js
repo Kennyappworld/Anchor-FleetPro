@@ -1,37 +1,34 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import api from '../services/api';
+import api, { tokens, refreshSession } from '../services/api';
 
 export const useAuthStore = create(
   persist(
     (set, get) => ({
+      // Tokens are not kept here any more: the access token lives in memory
+      // (services/api.js) and the refresh token in an httpOnly cookie.
       user: null,
-      accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
 
       login: async (email, password, totpCode) => {
         const res = await api.post('/auth/login', { email, password, totpCode });
-        const { user, accessToken, refreshToken, requires2FA } = res.data;
+        const { user, accessToken, requires2FA } = res.data;
         if (requires2FA) return { requires2FA: true };
-        set({ user, accessToken, refreshToken, isAuthenticated: true });
+        tokens.set(accessToken);
+        set({ user, isAuthenticated: true });
         return { success: true, user };
       },
 
       logout: async () => {
         try { await api.post('/auth/logout'); } catch {}
-        set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });
+        tokens.clear();
+        set({ user: null, isAuthenticated: false });
       },
 
-      refreshAuth: async () => {
-        const { refreshToken } = get();
-        if (!refreshToken) throw new Error('No refresh token');
-        const res = await api.post('/auth/refresh', { refreshToken });
-        set({ accessToken: res.data.accessToken, refreshToken: res.data.refreshToken });
-        return res.data.accessToken;
-      },
+      refreshAuth: () => refreshSession(),
 
-      setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
+      // The refresh token arrives as a cookie; only the access token is handed over here.
+      setTokens: (accessToken) => tokens.set(accessToken),
 
       setUser: (userData) => set({ user: userData }),
 
@@ -54,7 +51,14 @@ export const useAuthStore = create(
     }),
     {
       name: 'fleetanchor-auth',
-      partialize: (state) => ({ user: state.user, accessToken: state.accessToken, refreshToken: state.refreshToken, isAuthenticated: state.isAuthenticated }),
+      version: 1,
+      // Sessions saved before tokens moved to a cookie: hand the old refresh token
+      // over once (the server swaps it for a cookie), then forget it.
+      migrate: (persisted) => {
+        if (persisted?.refreshToken) tokens.setLegacy(persisted.refreshToken);
+        return { user: persisted?.user ?? null, isAuthenticated: !!persisted?.isAuthenticated };
+      },
+      partialize: (state) => ({ user: state.user, isAuthenticated: state.isAuthenticated }),
     }
   )
 );

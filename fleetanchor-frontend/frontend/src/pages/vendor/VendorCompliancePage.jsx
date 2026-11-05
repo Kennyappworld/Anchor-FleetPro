@@ -5,7 +5,7 @@ import {
   Download, RefreshCw, ChevronDown, Eye
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+import { readRows, downloadSheet } from '../../utils/spreadsheet';
 import { complianceService, vehicleService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
@@ -165,16 +165,13 @@ export default function VendorCompliancePage() {
   };
 
   
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const wb = XLSX.read(ev.target.result, { type: 'binary' });
+    try {
       // Prefer 'Document Compliance' sheet, then first sheet
-      const sheetName = wb.SheetNames.find(n => /compliance|document/i.test(n)) || wb.SheetNames[0];
-      const sheet = wb.Sheets[sheetName];
-      const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      const raw = await readRows(file, /compliance|document/i);
       // Find real header row (contains 'Plate Number' or 'Plate')
       let hIdx = raw.findIndex(r => r.some(c => /plate/i.test(String(c))));
       if (hIdx === -1) hIdx = 0;
@@ -191,9 +188,9 @@ export default function VendorCompliancePage() {
       setImportRows(parsed);
       setShowImport(true);
       setImportResult(null);
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = '';
+    } catch (err) {
+      toast.error(err.message || 'Could not read the file');
+    }
   };
 
   const handleBulkImport = async () => {
@@ -208,11 +205,8 @@ export default function VendorCompliancePage() {
   };
 
   const downloadTemplate = () => {
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]);
-    ws['!cols'] = TEMPLATE_HEADERS.map(() => ({ wch: 26 }));
-    XLSX.utils.book_append_sheet(wb, ws, 'Documents');
-    XLSX.writeFile(wb, 'compliance-import-template.xlsx');
+    downloadSheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE], { sheet: 'Documents', fileName: 'compliance-import-template.xlsx', width: 26 })
+      .catch(() => toast.error('Could not create the template'));
   };
 
   
@@ -238,7 +232,7 @@ export default function VendorCompliancePage() {
           <button onClick={() => setShowAdd(true)} className="btn-primary flex items-center gap-1.5 text-sm px-4 py-2">
             <Plus size={16} /> Add Document
           </button>
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileUpload} />
+          <input ref={fileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={handleFileUpload} />
         </div>
       </div>
 

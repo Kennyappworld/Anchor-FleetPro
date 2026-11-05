@@ -103,6 +103,7 @@ export default function App() {
             <Route path="invoices" element={<InvoicesPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="scanner" element={<ScannerPage />} />
+            <Route path="chat" element={<TeamChatPage />} />
             <Route path="subscriptions" element={<SubscriptionsPage />} />
             <Route path="audit" element={<AuditPage />} />
             <Route path="settings" element={<SettingsPage />} />

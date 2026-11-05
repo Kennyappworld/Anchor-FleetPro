@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Scan, Plus, Search, Upload, Trash2, X, FileSpreadsheet, CheckCircle, AlertCircle, ChevronDown, Car, Wrench, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+import { readRows, downloadSheet } from '../../utils/spreadsheet';
 import { vehicleService } from '../../services/api';
 import { useAuthStore } from '../../context/authStore';
 
@@ -97,30 +97,20 @@ export default function VendorVehiclesPage() {
   };
 
   
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
+    {
       try {
-        const wb = XLSX.read(ev.target.result, { type: 'binary' });
         // Try 'Vehicles' sheet first, then first sheet
-        const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes('vehicle')) || wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
-
-        // Read as raw array-of-arrays to find the real header row (contains 'VIN')
-        const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        const raw = await readRows(file, /vehicle/i);
+        // Find the real header row (contains 'VIN')
         let headerRowIdx = raw.findIndex(row =>
           row.some(cell => String(cell).trim().toUpperCase() === 'VIN')
         );
         if (headerRowIdx === -1) headerRowIdx = 0; // fallback
-
-        // Re-parse from the real header row
-        const rows = XLSX.utils.sheet_to_json(ws, {
-          header: 1,
-          defval: '',
-          range: headerRowIdx,
-        });
+        const rows = raw.slice(headerRowIdx);
         if (rows.length < 2) { toast.error('No data rows found in sheet'); return; }
 
         // rows[0] = headers, rows[1..] = data
@@ -139,11 +129,9 @@ export default function VendorVehiclesPage() {
         setImportResult(null);
         setShowImport(true);
       } catch (err) {
-        toast.error('Could not read file. Use .xlsx or .xls format');
+        toast.error(err.message || 'Could not read file. Use .xlsx or .csv format');
       }
-    };
-    reader.readAsBinaryString(file);
-    e.target.value = '';
+    }
   };
 
   const handleImport = async () => {
@@ -159,10 +147,8 @@ export default function VendorVehiclesPage() {
   };
 
   const downloadTemplate = () => {
-    const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Vehicles');
-    XLSX.writeFile(wb, 'fleet_import_template.xlsx');
+    downloadSheet([TEMPLATE_HEADERS, TEMPLATE_EXAMPLE], { sheet: 'Vehicles', fileName: 'fleet_import_template.xlsx' })
+      .catch(() => toast.error('Could not create the template'));
   };
 
   const inRepair = vehicles.filter(v => v.status === 'IN_REPAIR').length;
@@ -213,7 +199,7 @@ export default function VendorVehiclesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleFileChange} />
+          <input ref={fileRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={handleFileChange} />
           <button className="btn-ghost" onClick={() => fileRef.current?.click()}>
             <Upload className="w-3.5 h-3.5" />Import Excel
           </button>

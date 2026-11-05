@@ -4,6 +4,7 @@ const auditService = require('../services/auditService');
 const emailService = require('../services/emailService');
 const { generateJobNumber } = require('../utils/generators');
 const { jobWhere, vehicleWhere, isSuper, isOem } = require('../utils/tenant');
+const clientIp = require('../utils/clientIp');
 
 // Workshop side moves a job through repair; the fleet side only closes or cancels via estimate response.
 const WORKSHOP_ROLES = ['SUPER_ADMIN', 'OEM_ADMIN', 'WORKSHOP_STAFF'];
@@ -44,7 +45,7 @@ exports.create = async (req, res) => {
     // Notify workshop staff
     emailService.sendJobSubmittedNotification({ job }).catch(() => {});
 
-    await auditService.log({ userId: req.user.userId, action: 'JOB_CREATED', entityType: 'job', entityId: job.id, ipAddress: req.ip, actorLabel: req.user.email });
+    await auditService.log({ userId: req.user.userId, action: 'JOB_CREATED', entityType: 'job', entityId: job.id, ipAddress: clientIp(req), actorLabel: req.user.email });
 
     return res.status(201).json({ success: true, job });
   } catch (err) {
@@ -173,7 +174,7 @@ exports.updateStatus = async (req, res) => {
       emailService.sendRepairComplete({ job, vendorEmails }).catch(() => {});
     }
 
-    await auditService.log({ userId: req.user.userId, action: `JOB_STATUS_${status}`, entityType: 'job', entityId: id, ipAddress: req.ip, actorLabel: req.user.email });
+    await auditService.log({ userId: req.user.userId, action: `JOB_STATUS_${status}`, entityType: 'job', entityId: id, ipAddress: clientIp(req), actorLabel: req.user.email });
 
     return res.json({ success: true, job: updated });
   } catch (err) {
@@ -203,7 +204,7 @@ exports.respondToEstimate = async (req, res) => {
 
     if (action === 'approve') {
       await prisma.estimate.update({ where: { id: estimate.id }, data: { status: 'APPROVED', approvedAt: new Date() } });
-      await exports.updateStatus({ params: { id }, body: { status: 'ESTIMATE_APPROVED', note: 'Estimate approved by vendor' }, user: req.user, ip: req.ip, _internalStatusChange: true }, res);
+      await exports.updateStatus({ params: { id }, body: { status: 'ESTIMATE_APPROVED', note: 'Estimate approved by vendor' }, user: req.user, ip: clientIp(req), _internalStatusChange: true }, res);
     } else if (action === 'query') {
       await prisma.estimate.update({ where: { id: estimate.id }, data: { status: 'QUERIED', queryNote } });
       await prisma.jobRequest.update({ where: { id }, data: { status: 'ESTIMATE_QUERIED' } });

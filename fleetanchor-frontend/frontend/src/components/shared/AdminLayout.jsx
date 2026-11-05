@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Wrench, Car, Building2, Receipt, BarChart2, Scan, CreditCard, Shield, Settings, Bell, LogOut, ChevronDown, Hammer, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Wrench, Car, Building2, Receipt, BarChart2, Scan, CreditCard, Shield, Settings, Bell, LogOut, ChevronDown, Hammer, Menu, X, MessageCircle } from 'lucide-react';
 import { PoweredBy } from '../../pages/auth/ForgotPasswordPage';
 import useMobileTables from '../../hooks/useMobileTables';
 import { useAuthStore } from '../../context/authStore';
@@ -12,6 +12,7 @@ const NAV = [
     { to: '/admin/jobs',        icon: Wrench,          label: 'Job Requests',    badge: 7 },
     { to: '/admin/repairs',     icon: Hammer,          label: 'Active Repairs' },
     { to: '/admin/scanner',     icon: Scan,            label: 'VIN Scanner' },
+    { to: '/admin/chat',        icon: MessageCircle,   label: 'Team Chat' },
   ]},
   { section: 'Fleet', items: [
     { to: '/admin/vehicles',    icon: Car,             label: 'Vehicles' },

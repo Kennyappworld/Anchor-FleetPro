@@ -47,11 +47,12 @@ app.set("trust proxy", 1); // trust Railway/Vercel reverse proxy for real IP
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: parseInt(process.env.GLOBAL_RATE_LIMIT_MAX) || 600,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: "Too many requests. Please slow down." },
   skip: (req) => req.path === "/health", // never throttle health checks
+  keyGenerator: (req) => require("./utils/clientIp")(req),
 });
 app.use("/api/", globalLimiter);
 
@@ -165,6 +166,7 @@ app.use("/api/compliance", require("./routes/compliance"));
 app.use("/api/driver-licences", require("./routes/driverLicences"));
 app.use("/api/inspections", require("./routes/inspections"));
 app.use("/api/platform", require("./routes/platform"));
+app.use("/api/chat", require("./routes/chat"));
 // /api/setup was removed: it created a super admin with a password written in this
 // public repository and ran `prisma db push --accept-data-loss`. Use `npm run seed`.
 
