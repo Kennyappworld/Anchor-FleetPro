@@ -58,6 +58,8 @@ export default function VendorsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  // Shown once after adding a fleet, so the login works even when email isn't set up.
+  const [newLogin, setNewLogin] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { fetchVendors(); }, []);
@@ -150,7 +152,8 @@ export default function VendorsPage() {
       setVendors(prev => [res.data.data, ...prev]);
       setShowAdd(false);
       setForm(EMPTY_FORM);
-      toast.success(`${form.name} added! Login details sent to ${form.email}.`);
+      if (res.data.loginDetails) setNewLogin({ company: form.name, ...res.data.loginDetails });
+      toast.success(`${form.name} added.`);
     } catch (err) {
       const errData = err.response?.data;
       const msg = errData?.details?.map(d => `${d.field}: ${d.message}`).join(', ') || errData?.error || 'Failed to add vendor';
@@ -453,6 +456,32 @@ export default function VendorsPage() {
                   {saving ? 'Creating…' : <><Plus className="w-3.5 h-3.5"/> Create Vendor</>}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Login details for the new fleet — shown once */}
+      {newLogin && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="border border-white/[0.12] rounded-2xl p-6 w-full max-w-md shadow-2xl" style={{ backgroundColor: '#0d1f38' }}>
+            <div className="text-sm font-semibold text-[var(--text)] mb-1">Login details for {newLogin.company}</div>
+            <p className="text-[11px] text-[var(--text3)] mb-4">
+              These were also emailed to the client. Copy them now — the temporary password is not shown again.
+              The client must choose a new password at first sign-in.
+            </p>
+            {[['Login page', newLogin.loginUrl], ['Email', newLogin.email], ['Temporary password', newLogin.tempPassword]].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3 py-2 border-b border-white/[0.06] last:border-0">
+                <span className="text-[11px] text-[var(--text3)]">{k}</span>
+                <span className="text-xs font-mono text-[var(--text)] break-all text-right">{v}</span>
+              </div>
+            ))}
+            <div className="flex gap-2 mt-5">
+              <button className="btn-primary flex-1 justify-center" onClick={() => {
+                const text = `FleetAnchor Pro — ${newLogin.company}\nLogin: ${newLogin.loginUrl}\nEmail: ${newLogin.email}\nTemporary password: ${newLogin.tempPassword}\n(You will be asked to set your own password.)`;
+                navigator.clipboard?.writeText(text).then(() => toast.success('Copied'), () => toast.error('Copy failed — select and copy by hand'));
+              }}>Copy details</button>
+              <button className="btn-ghost flex-1 justify-center" onClick={() => setNewLogin(null)}>Done</button>
             </div>
           </div>
         </div>
