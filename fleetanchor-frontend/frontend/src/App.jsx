@@ -118,6 +118,8 @@ export default function App() {
             <Route path="invoices" element={<VendorInvoicesPage />} />
             <Route path="team" element={<VendorTeamPage />} />
             <Route path="subscription" element={<VendorSubscriptionPage />} />
+            {/* Paystack sends the payer back here with ?reference=… */}
+            <Route path="subscription/verify" element={<VendorSubscriptionPage />} />
             <Route path="chat" element={<TeamChatPage />} />
             <Route path="compliance" element={<VendorCompliancePage />} />
             <Route path="drivers" element={<VendorDriversPage />} />
