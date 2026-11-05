@@ -16,7 +16,8 @@ export default function VendorInvoicesPage() {
     try {
       const res = await invoiceService.list({ limit: 100 });
       const list = res.data?.data || res.data?.invoices || [];
-      setInvoices(list);
+      // The API returns the job as `job`; these screens read `jobRequest`.
+      setInvoices(list.map((i) => ({ ...i, jobRequest: i.jobRequest || i.job })));
     } catch { toast.error('Failed to load invoices'); }
     finally { setLoading(false); setRefreshing(false); }
   }, []);

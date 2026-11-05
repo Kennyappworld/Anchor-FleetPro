@@ -160,6 +160,9 @@ const check = (name, ok, detail) => results.push(`${ok ? 'PASS' : 'FAIL'}  ${nam
   check('adding a note keeps the status timestamps', r.status === 200 && upd && !('estimateSentAt' in upd.args.data), `${r.status} ${JSON.stringify(upd && upd.args.data)}`);
   r = await req('PATCH', `/api/jobs/${JOB}/status`, { token: tok(users.oem), body: { status: 'REPAIR_STARTED', note: 'x'.repeat(1001) } });
   check('over-long job notes are rejected', r.status === 422 || r.status === 400, r.status);
+  handlers['jobRequest.findFirst'] = () => ({ id: JOB, status: 'DIAGNOSED', vehicle: { vendor: { users: [] } } });
+  r = await req('PATCH', `/api/jobs/${JOB}/status`, { token: tok(users.oem), body: { status: 'ESTIMATE_SENT' } });
+  check('a job cannot be marked "estimate sent" without an estimate', r.status === 400, `${r.status} ${r.text}`);
   delete handlers['jobRequest.findFirst'];
 
   r = await req('GET', '/api/users?limit=100000', { token: tok(users.fm) });

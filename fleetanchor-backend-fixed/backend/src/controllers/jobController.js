@@ -135,6 +135,11 @@ exports.updateStatus = async (req, res) => {
       return res.status(403).json({ success: false, error: 'The fleet manager approves or queries the estimate' });
     }
     const changed = status !== job.status;
+    // "Estimate sent" only happens by sending an estimate (POST /api/estimates), so the fleet always has amounts to approve.
+    if (!internal && changed && status === 'ESTIMATE_SENT') {
+      const pending = await prisma.estimate.findFirst({ where: { jobId: id, status: 'PENDING' }, select: { id: true } });
+      if (!pending) return res.status(400).json({ success: false, error: 'Send the estimate (parts and labour) from the job page first' });
+    }
     if (technicianId) {
       const tech = await prisma.user.findFirst({ where: { id: String(technicianId), role: 'WORKSHOP_STAFF', ...(isSuper(req.user) ? {} : { oemId: req.user.oemId || '00000000-0000-0000-0000-000000000000' }) } });
       if (!tech) return res.status(400).json({ success: false, error: 'Technician not found' });
